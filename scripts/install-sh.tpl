@@ -88,11 +88,18 @@ case "$SLUG" in
 esac
 
 TARGET_ROOT="$(dir_for_agent "$AGENT")" || {
-  echo "不认识的 --agent：$AGENT（用 --help 看可选值）" >&2
+  # ⚠️ ${AGENT} 的花括号不能省：后面紧跟全角括号「（」，
+  # 而 bash 在部分版本/ locale 下会把多字节字符并进变量名，
+  # 报 `bash: line N: AGENT<乱码>: unbound variable`，用户看到的是天书而不是这句话。
+  echo "不认识的 --agent：${AGENT}（用 --help 看可选值）" >&2
   exit 2
 }
 
-if [ "$ENDPOINT" = "__SUPABASE_URL__" ] || [ -z "$ENDPOINT" ]; then
+# ⚠️ 这里只能判空，**不能**拿「URL 的占位符」当「未注入」的哨兵。
+#    生成器是 replaceAll(占位符, 真实端点)，守卫里那个哨兵会被一起替换掉 ——
+#    结果就是「注入成功反而触发守卫」，线上所有人都会安装失败。
+#    （2026-10-10 真实踩到，靠端到端跑一遍 install.sh 才发现。）
+if [ -z "$ENDPOINT" ] || [ -z "$ANON_KEY" ]; then
   echo "这个 install.sh 没有注入后端地址（构建时未配置 Supabase）。" >&2
   echo "请到技能详情页用「下载 .zip」手动安装。" >&2
   exit 1
@@ -119,7 +126,8 @@ HTTP_CODE="$(curl -sS -o "$TMP/resp.json" -w '%{http_code}' \
 }
 
 if [ "$HTTP_CODE" != "200" ]; then
-  echo "请求失败（HTTP $HTTP_CODE）。" >&2
+  # 同上的理由：${HTTP_CODE} 后面紧跟「）」，必须加花括号
+  echo "请求失败（HTTP ${HTTP_CODE}）。" >&2
   head -c 400 "$TMP/resp.json" >&2 || true
   echo >&2
   exit 1

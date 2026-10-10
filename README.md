@@ -133,7 +133,10 @@ scripts/
 ├── check-supabase-env.mjs 构建期核对（分 warning / error 两档）
 └── tests/parse-skill.test.mjs  解析层单测（26 条）
 
-supabase/migrations/001-skills.sql   表 + RLS + 5 个 SECURITY DEFINER 函数
+supabase/
+├── migrations/001-skills.sql  表 + RLS + 5 个 SECURITY DEFINER 函数
+├── preflight-check.sql        跑迁移**之前**先跑的只读冲突预检
+└── verify-migration.mjs       PGlite 离线验证（共用项目替身 + 前后快照对比）
 ```
 
 ---
@@ -152,6 +155,17 @@ npm run check:env # 后端连通性（未配则只警告）
 | --- | --- | --- |
 | 把 `tags` 的 undefined 守卫改回裸 `.slice` | 1 条 | ✅ 1 条（`parseSkill：缺 SKILL.md`） |
 | 把路径排序改回 `localeCompare` | 2 条 | ✅ 2 条（`readZip` / `parseSkill：完整走通`） |
+
+后端迁移另有一层离线验证（PGlite 真跑 SQL），见 `supabase/README.md`：
+
+| 造红开关 | 期望红 | 实测 |
+| --- | --- | --- |
+| 删掉 `revoke all on public.skills` | 1 条 | ✅ 1 条（anon 读表不再被硬拒） |
+| 把 `skills` 改名撞 `bookmarks` | 迁移报错 | ✅ `column "created_at" does not exist` |
+| 静默重定义 `is_admin()` | 1 条 | ✅ 1 条（函数快照对比抓到） |
+| 偷偷给 `bookmarks` 加一列 | 1 条 | ✅ 1 条（列快照对比抓到） |
+
+基线 `51/51`。
 
 **造红过程中真的抓出两个 bug**（不是演练，是先写测试时暴露的）：
 

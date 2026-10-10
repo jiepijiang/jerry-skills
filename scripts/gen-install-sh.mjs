@@ -19,7 +19,9 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const TPL = path.join(ROOT, 'scripts', 'install-sh.tpl')
-const OUT = path.join(ROOT, 'public', 'install.sh')
+// 输出路径可覆盖，好让单测生成到临时文件、不去动 public/install.sh。
+// 正常构建时不会设置这个变量。
+const OUT = process.env.INSTALL_SH_OUT || path.join(ROOT, 'public', 'install.sh')
 
 const DEFAULT_SITE = 'https://jiepijiang.github.io/jerry-skills'
 
@@ -51,9 +53,23 @@ const key = pick('VITE_SUPABASE_ANON_KEY')
 const site = (pick('VITE_SITE_URL') || DEFAULT_SITE).replace(/\/$/, '')
 
 let sh = readFileSync(TPL, 'utf8')
-sh = sh.replaceAll('__SUPABASE_URL__', url || '__SUPABASE_URL__')
-sh = sh.replaceAll('__SUPABASE_ANON_KEY__', key || '')
+// 🔴 缺失值一律替换成**空串**，不要「留着占位符当哨兵」。
+//    曾经的写法是 `url || '__SUPABASE_URL__'`，想用「脚本里还有占位符」来标记未注入，
+//    但 replaceAll 是全局的 —— 它把**守卫里那个哨兵**也一并替换成了真实端点，
+//    于是守卫恒真，线上每个 `curl | bash` 都直接退出 1。
+//    空串方案 + 下面那道残留断言，才能同时兜住「没配」和「配了但没替换干净」。
+sh = sh.replaceAll('__SUPABASE_URL__', url)
+sh = sh.replaceAll('__SUPABASE_ANON_KEY__', key)
 sh = sh.replaceAll('__SITE_URL__', site)
+
+// 构建期兜底：替换完不该再有任何占位符残留。留着就是「静默装个空目录」的前兆。
+const leftovers = ['__SUPABASE_URL__', '__SUPABASE_ANON_KEY__', '__SITE_URL__'].filter((t) =>
+  sh.includes(t),
+)
+if (leftovers.length) {
+  console.error(`❌ install.sh 里仍有未替换的占位符：${leftovers.join(', ')}`)
+  process.exit(1)
+}
 
 mkdirSync(path.dirname(OUT), { recursive: true })
 writeFileSync(OUT, sh, { mode: 0o755 })

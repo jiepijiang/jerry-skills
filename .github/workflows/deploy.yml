@@ -39,7 +39,7 @@ jobs:
         # 放在 npm ci 之后 —— 它依赖 fflate。
         #
         # 这里面还包含 install.sh / install.ps1 的测试。runner 上 pwsh 是预装的，
-        # 所以 136 条会**全部真跑**，不会有跳过 —— 本机没装 PowerShell 时
+        # 所以 139 条会**全部真跑**，不会有跳过 —— 本机没装 PowerShell 时
         # 那 8 条才会 graceful skip（tap 里明写 # SKIP，不伪装成绿灯）。
         run: npm test
 

@@ -169,7 +169,7 @@ scripts/
 ├── install-ps1.tpl        install.ps1 模板（Windows / PowerShell）
 ├── gen-installers.mjs     predev / prebuild 钩子：把端点注入上面两个模板
 ├── check-supabase-env.mjs 构建期核对（分 warning / error 两档）
-└── tests/                 单测 136 条（明细见下面「验证」）
+└── tests/                 单测 139 条（明细见下面「验证」）
 
 supabase/
 ├── migrations/001-skills.sql        表 + RLS + 5 个 SECURITY DEFINER 函数
@@ -226,13 +226,23 @@ npm run build     # 构建（会先跑 gen-installers，生成 install.sh + inst
 npm run check:env # 后端连通性（未配则只警告）
 ```
 
-> **跑 Windows 那部分要本机有 PowerShell**。默认找 PATH 上的 `pwsh`；本机没装的话，
-> 那 8 条（解析器 / 参数校验 / `-Help` / 进度条还原 / 三条端到端）会**跳过而不是失败** ——
-> 跳过会在 tap 里明写 `# SKIP 本机没有 pwsh`，不会伪装成绿灯。
-> 指定别的解释器：`PWSH_PATH=/path/to/pwsh npm test`。
-> 装了的话应当是 **139 pass / 0 fail / 0 skipped**（本机实测 12s）。
+> **跑 Windows 那部分要本机有 PowerShell**。默认找 PATH 上的 `pwsh`；没装的话，
+> 那 8 条（解析器 / 注入守卫 / 参数校验 / `-Help` / 进度条还原 / 三条端到端）会
+> **跳过而不是失败** —— 跳过会在 tap 里明写 `# SKIP 本机没有 pwsh`，不会伪装成绿灯。
+> 本机 pwsh **不在 PATH 上**（是从官方 tarball 解到 `~/.workbuddy-ai/binaries/pwsh/pwsh` 的），
+> 所以本机要跑全量得显式指路：
+>
+> ```bash
+> PWSH_PATH=~/.workbuddy-ai/binaries/pwsh/pwsh npm test
+> ```
+>
+> 全量实测 **139 pass / 0 fail / 0 skipped，约 11s**；不指定时是 **131 pass / 8 skipped，约 2s**。
+> CI 的 ubuntu runner 预装 pwsh，跑的就是全量。
 
 按本项目的纪律，**写完断言要故意造红一次**，确认它真会失败。已验证：
+
+> 「实测」列里的编号是 `npm test` **全量输出**里的 `ok N`（本机实测稳定；`installers.test.mjs`
+> 那批从 60 号起编）。别拿**单跑一个测试文件**时的编号去对 —— 那是另一套。
 
 | 造红开关 | 期望红 | 实测 |
 | --- | --- | --- |
@@ -264,15 +274,16 @@ npm run check:env # 后端连通性（未配则只警告）
 | 详情页绕过 `useSkillDelete` 直接调 API | 1 条 | ✅ 1 条 |
 | 详情页删除按钮去掉 `v-if="isAdmin"` | 1 条 | ✅ 1 条 |
 | **文案 key 写错顺序**（`confirmDelete` → `deleteConfirm`） | 2 层 | ✅ 单测 1 条 + **浏览器 2 条**（见下） |
-| 把 `install.ps1` 的 `throw ''` 换回 `exit 1` | 1 条 | ✅ 1 条（`not ok 7`，「一个 `exit` 都不能有」） |
-| 去掉 `$global:ProgressPreference` 的 `$global:` | 1 条 | ✅ 1 条（`not ok 8`，普通赋值压不住模块函数的进度条） |
+| 把 `install.ps1` 的 `throw ''` 换回 `exit 1` | 1 条 | ✅ 1 条（`not ok 67`，「一个 `exit` 都不能有」） |
+| 去掉 `$global:ProgressPreference` 的 `$global:` | 1 条 | ✅ 1 条（`not ok 68`，普通赋值压不住模块函数的进度条） |
 | 改坏 `install-ps1.tpl` 里一个 agent 目录 | 2 条 | ✅ 2 条（三处目录表比对 + 一条端到端） |
 | 把注入守卫改回 `-eq '__SUPABASE_URL__'` | **6 条** | ✅ 6 条（自指哨兵：全局替换会把守卫本身也换掉） |
 | `install.ps1` 里 `${Agent}` 写成裸 `$Agent` | 1 条 | ✅ 1 条（变量名吃掉后面的中文 → 静默变空串） |
+| 把 `install.ps1` 字符类里的 `"` 去掉（退回「少查一个双引号」） | 1 条 | ✅ 1 条（`not ok 73`：恶意 slug 溜过校验，一路走到网络层才炸） |
 | 把 `.empty svg` 加回 `hub.css` | 1 条 | ✅ 1 条（后代选择器漏进插槽，按钮图标被改色） |
 | 在 `hub.css` **注释里**放一条完整的 `.empty svg { … }` | 0 条（该绿） | ✅ 6/6 绿（证明剥注释真的生效） |
 | 把 `stripComments` 改成 `return src`（停用剥注释） | 1 条 | ✅ 1 条（少了这条，守卫会被一句注释骗过去） |
-| 把 `install-sh.tpl` 里的 `__SITE_URL__` 退回 `__SITE__` | 1 条 | ✅ 1 条（`not ok 3`，精确报出 `["__SITE__"]`） |
+| 把 `install-sh.tpl` 里的 `__SITE_URL__` 退回 `__SITE__` | 1 条 | ✅ 1 条（`not ok 62`，精确报出 `["__SITE__"]`） |
 | 去掉 `packZip` 的 `{ mtime: … }`（退回 fflate 默认的 `Date.now()`） | 2 条 | ✅ 2 条（时间戳常量 / 时钟拧 6 年）。**同时那条旧的「哈希稳定」照样绿** —— 假绿坐实 |
 
 后端迁移另有一层离线验证（PGlite 真跑 SQL），见 `supabase/README.md`：
@@ -344,8 +355,12 @@ npm run check:env # 后端连通性（未配则只警告）
    **去重直接失效**。改成码位比较后与环境无关。
 3. `install.ps1` 的 slug 校验**比 `install.sh` 少查一个双引号**。症状是
    「macOS 报错、Windows 装上了」—— 因为 `-Slug 'x","p_slug":"y'` 能溜过 PowerShell
-   的校验，直到网络层才出问题。修法是把两边的字符类写成**同一串** `[\x00-\x1f"\\]`，
-   并由三处比对那条断言钉住。
+   的校验，直到网络层才出问题。**造红时复现的正是这个**：脚本打印
+   「正在获取 `x","p_slug":"y` …」然后才 `Connection refused`，而不是在校验处早退。
+   修法是让两边的**规则集对齐** —— bash 侧是 `case "$SLUG" in *'"'*|*'\'*)`，
+   PowerShell 侧是 `-match '[\x00-\x1f"\\]'`（额外挡掉控制字符），两边都拒 `"` 与 `\`。
+   钉住它的是 bash / PowerShell **各一条**「喂同一个恶意 slug，必须报『非法的技能标识』」
+   的断言 —— 不是「三处目录比对」那条（那条管的是 agent 目录表）。
 4. **`packZip` 不是确定性的，内容去重形同虚设**。fflate 的 `zipSync` 在条目没给
    `mtime` 时用 `Date.now()`，于是 zip 头里的 DOS 时间字段每 2 秒变一次，
    同样内容每次打包出来的字节都不同 → sha256 不同 → 服务端那句
@@ -360,7 +375,7 @@ npm run check:env # 后端连通性（未配则只警告）
 > 于是很容易跑去查网络 / 代理（也确实会查出一堆无关的线索：直连是 `Connection refused`、
 > 走沙箱代理是 `502`）。真正的判据是**失败时间整齐划一** —— 真实网络故障不会这么齐。
 >
-> 改成异步 `spawn` + `Promise` 后，整个套件从 **185s → 10s**。
+> 改成异步 `spawn` + `Promise` 后，整个套件从 **185s → 11s**。
 > 记住这条：**在进程内起服务、又要在测试里连它，就不能用 `spawnSync`。**
 
 > 🔴 **一个「所有自动检查都放行」的漏替换**（真实踩到，而且是上一版就潜伏的）：

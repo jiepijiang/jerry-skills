@@ -22,10 +22,12 @@ npm-debug.log*
 yarn-error.log*
 pnpm-error.log*
 
-# 构建期生成的安装脚本（由 scripts/gen-install-sh.mjs 从环境变量注入端点）
-# 之所以不进仓库：它内联了 Supabase 端点，属于「每个部署环境一份」的产物，
+# 构建期生成的安装脚本（由 scripts/gen-installers.mjs 从环境变量注入端点）
+# 之所以不进仓库：它们内联了 Supabase 端点，属于「每个部署环境一份」的产物，
 # 和 dist/ 是同一性质。CI 里在 npm run build 前生成。
+# ⚠️ 两个都要列 —— 漏掉一个的后果是「某个平台的安装脚本带着上一台机器的端点进仓库」。
 public/install.sh
+public/install.ps1
 
 # 本机 AI 工作区（项目记忆等本地状态，不随仓库分发）
 .workbuddy-ai

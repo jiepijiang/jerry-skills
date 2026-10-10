@@ -8,8 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "predev": "node scripts/gen-install-sh.mjs",
-    "prebuild": "node scripts/gen-install-sh.mjs",
+    "predev": "node scripts/gen-installers.mjs",
+    "prebuild": "node scripts/gen-installers.mjs",
     "check:env": "node scripts/check-supabase-env.mjs",
     "test": "node --test scripts/tests/*.test.mjs"
   },

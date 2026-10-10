@@ -165,7 +165,7 @@ onMounted(() => load())
 
       <template v-else-if="error">
         <EmptyState icon="warn" :text="error">
-          <button class="btn sm" @click="load()">重试</button>
+          <button class="btn" @click="load()">重试</button>
         </EmptyState>
       </template>
 
@@ -182,8 +182,10 @@ onMounted(() => load())
               : '还没有技能。你可以上传第一个。'
           "
         >
-          <router-link v-if="!isFiltering" to="/upload" class="btn sm primary">
-            <AppIcon name="upload" :size="14" fill="#fff" />
+          <!-- 和 Hero 里那个用同一套规格（默认尺寸，不是 .sm）——
+               两处都是「页面级主操作」，尺寸不一致看起来就是没做完。 -->
+          <router-link v-if="!isFiltering" to="/upload" class="btn primary">
+            <AppIcon name="upload" :size="16" fill="#fff" />
             上传技能
           </router-link>
         </EmptyState>

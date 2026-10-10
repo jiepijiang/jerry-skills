@@ -34,7 +34,7 @@ const showSearch = computed(() => route.name === 'home')
       <div class="hub-nav-spacer" />
 
       <a
-        class="btn sm nav-icon-btn"
+        class="btn nav-icon-btn"
         :href="footer.repo"
         target="_blank"
         rel="noopener noreferrer"
@@ -43,8 +43,8 @@ const showSearch = computed(() => route.name === 'home')
         <AppIcon name="github" :size="16" />
       </a>
 
-      <router-link to="/upload" class="btn sm primary">
-        <AppIcon name="upload" :size="15" fill="#fff" />
+      <router-link to="/upload" class="btn primary">
+        <AppIcon name="upload" :size="16" fill="#fff" />
         上传技能
       </router-link>
     </div>
@@ -52,9 +52,20 @@ const showSearch = computed(() => route.name === 'home')
 </template>
 
 <style scoped>
-/* 图标按钮：窄屏只留图标 */
+/*
+ * 图标按钮：做成 38×38 的正方形。
+ *
+ * ⚠️ 这里**不能**用 `.btn.sm`（32px）。顶栏的搜索框是 38px，
+ *    如果按钮是 32px，同一排控件就会参差不齐；而 Hero / 空状态里的
+ *    「上传技能」都是默认的 38px —— 同一个按钮在三个地方两个尺寸，
+ *    看起来就是「UI 不统一」。现在顶栏整排（搜索框 / 图标按钮 / 上传技能）
+ *    统一 38px。
+ *
+ * 窄屏只留图标。
+ */
 .nav-icon-btn {
-  padding: 0 10px;
+  padding: 0;
+  width: 38px;
 }
 
 @media (max-width: 520px) {

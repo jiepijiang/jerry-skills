@@ -359,6 +359,23 @@
   word-break: normal;
 }
 
+/*
+ * 命令行安装命令这一块要**换行**显示。
+ *
+ * 默认的 `.code-block pre` 是 `white-space: pre` + 横向滚动 —— 对 macOS/Linux 那条
+ * `curl … | bash -s -- …` 够用。但 Windows 那条长得多（TLS + DownloadString +
+ * scriptblock 三截拼起来 200 多字符），不换行的话右侧被直接切掉，用户**根本读不到**
+ * 后半截是什么命令。
+ *
+ * ⚠️ 这里只改**显示**。`pre` 里的文本仍然是**一整行**（没有真的换行符），
+ *    所以「复制」按钮拿到的还是可以直接粘进终端的一条命令。
+ *    src/views 那边有一句注释、scripts/tests 里有一条断言在钉这件事。
+ */
+.cmd-block pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .code-block .code-copy {
   align-items: center;
   align-self: flex-start;
@@ -516,12 +533,12 @@
   text-align: center;
 }
 
-.empty svg {
-  fill: var(--hub_muted);
-  height: 40px;
-  opacity: 0.6;
-  width: 40px;
-}
+/* ⚠️ 这里**故意没有** `.empty svg` 这条规则。
+   装饰图标的样式在 EmptyState.vue 的 scoped 样式里（`.empty-icon`）。
+   原因：`.empty svg` 是后代选择器，会连插槽里的按钮图标一起命中 ——
+   「上传技能」按钮的图标被撑成 40px 灰色半透明，和别处的同名按钮完全不像。
+   而且它和 `.btn svg` 特异度相同，靠源码顺序取胜，改文件顺序就会再犯。
+   用专属 class 才是结构上安全的做法。 */
 
 .empty p {
   font-size: 14px;

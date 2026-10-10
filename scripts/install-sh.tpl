@@ -7,7 +7,7 @@
 #
 #   --agent  装到哪个 AI 助手的 skills 目录（默认 workbuddy）
 #
-# 这个文件是**模板**：scripts/gen-install-sh.mjs 会把 __SUPABASE_*__ 替换成
+# 这个文件是**模板**：scripts/gen-installers.mjs 会把 __SUPABASE_*__ 替换成
 # 真实端点后写进 public/install.sh。别直接改 public/install.sh —— 它每次构建
 # 都会被覆盖。
 #

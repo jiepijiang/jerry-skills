@@ -110,9 +110,11 @@ export const metricNotes = {
 /**
  * 安装目标：各 AI 助手的 skills 目录。
  *
- * ⚠️ 这里的 `dir` 必须和 install.sh 里的一致 —— 前端用它渲染「装到哪」，
- * 脚本用它决定落盘位置。两处不一致会出现「页面写着 A、实际装到 B」。
- * 改这里的时候记得同步 scripts/install-sh.tpl。
+ * ⚠️ 这里的 `dir` 必须和**两个**安装脚本里的一致 —— 前端用它渲染「装到哪」，
+ * 脚本用它决定落盘位置。三处不一致会出现「页面写着 A、实际装到 B」。
+ * 改这里的时候记得同步：
+ *   - scripts/install-sh.tpl  的 dir_for_agent()
+ *   - scripts/install-ps1.tpl 的 $AgentDirs
  */
 export const agents = [
   { key: 'workbuddy', label: 'WorkBuddy', dir: '~/.workbuddy-ai/skills' },
@@ -129,6 +131,42 @@ export const DEFAULT_AGENT = 'workbuddy'
 
 export function agentByKey(key) {
   return agents.find((a) => a.key === key) || agents[0]
+}
+
+/**
+ * 安装命令的「系统」维度。
+ *
+ * ⚠️ 只有**两档**，不是三档。macOS 和 Linux 跑的是同一条 `curl | bash`，
+ *    硬拆成两个选项的话，用户切来切去会发现「怎么一点没变」—— 那比少一个选项更让人困惑。
+ *    Windows 上没有 bash，`curl | bash` 根本执行不了，所以必须换一条 PowerShell 命令。
+ *
+ * `key` 要和 src/lib/install.js 里的分支一致。
+ */
+export const oses = [
+  {
+    key: 'unix',
+    label: 'macOS / Linux',
+    /** 详情页命令上方那句说明的开头 —— 直接写进模板，不用拼接 */
+    hint: '在「终端」（Terminal）里执行',
+    /**
+     * AI 提示词里那句「在哪儿执行」。
+     * 单独写一份而不是从 `where` 拼：中文里「在终端里执行」不用空格，
+     * 但「在 PowerShell 里执行」必须加空格才好看 —— 拼出来的话总有一边是别扭的。
+     */
+    promptLine: '在终端（Terminal）里执行这条命令即可：',
+  },
+  {
+    key: 'windows',
+    label: 'Windows',
+    hint: '在 PowerShell 里执行（不是 cmd）',
+    promptLine: '在 PowerShell 里执行这条命令即可：',
+  },
+]
+
+export const DEFAULT_OS = 'unix'
+
+export function osByKey(key) {
+  return oses.find((o) => o.key === key) || oses[0]
 }
 
 /**

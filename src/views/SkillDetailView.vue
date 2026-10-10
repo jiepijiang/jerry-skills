@@ -12,11 +12,13 @@ import {
   categoryLabel,
   categoryIcon,
   metricNotes,
+  oses,
+  osByKey,
   SITE_URL,
 } from '@/data/site'
 import { buildTree, formatBytes } from '@/lib/parseSkill'
 import { absoluteTime, relativeTime } from '@/lib/time'
-import { agentPrompt, cliCommand } from '@/lib/install'
+import { agentPrompt, cliCommand, detectOS } from '@/lib/install'
 import { downloadSkill, errorText, getSkill, registerInstall, saveBlob } from '@/lib/skills-api'
 import { adminToken, isAdmin } from '@/lib/admin'
 import { useSkillDelete } from '@/composables/useAdmin'
@@ -34,6 +36,14 @@ const downloading = ref(false)
 
 const tab = ref('cli') // cli | agent
 const agent = ref(DEFAULT_AGENT)
+/**
+ * 安装命令针对哪个系统。
+ *
+ * 默认值按 UA 猜（Windows 用户打开页面就是对的），但**必须能改** ——
+ * 猜错的时候用户自己切一下就行，比让他去理解「为什么给我 Windows 命令」强。
+ * 只有两档：macOS 与 Linux 共用同一条 curl|bash，见 @/data/site 的 oses。
+ */
+const os = ref(detectOS())
 
 /* 站主专属：删除 */
 const confirmOpen = ref(false)
@@ -44,9 +54,14 @@ const { done: promptDone, copy: copyPrompt } = useCopy({ silent: true })
 const { done: mdDone, copy: copyMd } = useCopy({ silent: true })
 
 const tree = computed(() => (skill.value ? buildTree(skill.value.files || []) : null))
-const cliText = computed(() => (skill.value ? cliCommand(skill.value.slug, agent.value) : ''))
-const promptText = computed(() => (skill.value ? agentPrompt(skill.value, agent.value) : ''))
+const cliText = computed(() =>
+  skill.value ? cliCommand(skill.value.slug, agent.value, os.value) : '',
+)
+const promptText = computed(() =>
+  skill.value ? agentPrompt(skill.value, agent.value, os.value) : '',
+)
 const targetDir = computed(() => agents.find((a) => a.key === agent.value)?.dir || '')
+const osInfo = computed(() => osByKey(os.value))
 
 /**
  * 上传时间。解析不了时 `uploaded` 是空串 —— 用它当 v-if 的条件，
@@ -140,11 +155,11 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
 
     <!-- 出错 / 不存在 -->
     <EmptyState v-else-if="error" icon="warn" :text="error">
-      <button class="btn sm" @click="load(route.params.slug)">重试</button>
+      <button class="btn" @click="load(route.params.slug)">重试</button>
     </EmptyState>
 
     <EmptyState v-else-if="notFound" icon="box" text="没有找到这个技能，可能已经被删掉了。">
-      <router-link to="/" class="btn sm">回到列表</router-link>
+      <router-link to="/" class="btn">回到列表</router-link>
     </EmptyState>
 
     <template v-else-if="skill">
@@ -228,19 +243,31 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
             <AppIcon name="robot" :size="15" :fill="tab === 'agent' ? '#fff' : ''" />AI Agent
           </button>
 
-          <label class="agent-pick">
-            <span>装到</span>
-            <select v-model="agent" class="input select">
-              <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.label }}</option>
-            </select>
-          </label>
+          <!-- 两个选择器包在一起，才能整体靠右；分开写的话每个都 margin-left:auto，
+               中间会被撑开一大段空白。 -->
+          <div class="picks">
+            <label class="pick">
+              <span>装到</span>
+              <select v-model="agent" class="input select">
+                <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.label }}</option>
+              </select>
+            </label>
+
+            <label class="pick">
+              <span>系统</span>
+              <select v-model="os" class="input select">
+                <option v-for="o in oses" :key="o.key" :value="o.key">{{ o.label }}</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <template v-if="tab === 'cli'">
           <p class="block-hint">
-            在终端执行下面这条命令，技能会被装到 <code>{{ targetDir }}/{{ skill.slug }}</code>。
+            {{ osInfo.hint }}下面这条命令，技能会被装到
+            <code>{{ targetDir }}/{{ skill.slug }}</code>。
           </p>
-          <div class="code-block">
+          <div class="code-block cmd-block">
             <pre>{{ cliText }}</pre>
             <button class="code-copy" :class="{ done: cmdDone }" @click="onCopy('cli')">
               <AppIcon :name="cmdDone ? 'check' : 'copy'" :size="13" />
@@ -580,13 +607,22 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
   font-weight: 600;
 }
 
-.agent-pick {
+/* 两个选择器（装到 / 系统）整体靠右。
+   别给每个 .pick 各写 margin-left:auto —— 那样它们中间会被撑开一大段空白。 */
+.picks {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.pick {
   align-items: center;
   color: var(--hub_muted);
   display: flex;
   font-size: 13px;
   gap: 7px;
-  margin-left: auto;
 }
 
 .select {
@@ -722,9 +758,19 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
     width: 100%;
   }
 
-  .agent-pick {
+  .picks {
     margin-left: 0;
     width: 100%;
+  }
+
+  /* 窄屏两个选择器各占一半，别让「系统」被挤到下一行还只占一小截 */
+  .pick {
+    flex: 1 1 45%;
+  }
+
+  .pick .select {
+    flex: 1;
+    min-width: 0;
   }
 }
 </style>

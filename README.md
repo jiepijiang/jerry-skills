@@ -18,8 +18,8 @@
 | 上传 | 拖 `.zip`（技能文件夹压缩包）或 `SKILL.md`，也可以直接粘贴 Markdown |
 | 解析 | **在浏览器里就地解析**：frontmatter → 元信息，zip → 文件树与体积校验 |
 | 下载量 | 每次「下载 .zip」调一次 `download_skill` RPC，计数与取包在同一个事务里 |
-| 一键复制安装 | 生成一条 `curl … \| bash` 命令，复制即用 |
-| AI Agent 安装 | 生成一段自然语言提示词，粘给任意 agent 让它自己装 |
+| 一键复制安装 | 按系统生成命令：macOS/Linux 是 `curl … \| bash`，Windows 是 PowerShell，复制即用 |
+| AI Agent 安装 | 生成一段自然语言提示词，粘给任意 agent 让它自己装（提示词里带的是当前所选系统的那条命令） |
 
 ### 关于「参考站」
 
@@ -88,24 +88,58 @@ npm run check:env    # 验证后端是否就绪
 
 ## 安装是怎么工作的
 
-站点是纯静态托管（GitHub Pages），没有服务端能替用户「安装」。所以安装 = **给一段能真正跑起来的命令**：
+站点是纯静态托管（GitHub Pages），没有服务端能替用户「安装」。所以安装 = **给一段能真正跑起来的命令** —— 而且是**按系统给**：
 
 ```bash
+# macOS / Linux
 curl -fsSL https://jiepijiang.github.io/jerry-skills/install.sh \
   | bash -s -- pdf-editor --agent claude
 ```
 
-`install.sh` 由 `scripts/gen-install-sh.mjs` 在**构建期**从环境变量生成（内联 Supabase 端点）。
-它做的事：拉取技能包 → base64 解码 → 校验是 zip → 备份已有目录 → 解压到对应助手的 skills 目录 → 校验 SKILL.md 存在。
+```powershell
+# Windows（在 PowerShell 里，不是 cmd）
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; & ([scriptblock]::Create((New-Object Net.WebClient).DownloadString('https://jiepijiang.github.io/jerry-skills/install.ps1'))) -Slug pdf-editor -Agent claude
+```
 
-⚠️ 支持的目标目录在 **两个地方**定义，必须一致：
+详情页的「系统」选择器只有**两档**，不是三档：macOS 与 Linux 用的是**同一条** `curl | bash`，硬拆成两个选项只会让人切来切去发现「怎么一点没变」—— 那比少一个选项更让人困惑。默认值按 UA 猜（Windows 用户打开就是对的），但随时能改。
+
+两个脚本都由 `scripts/gen-installers.mjs` 在**构建期**从环境变量生成（内联 Supabase 端点）。做的事一样：拉取技能包 → base64 解码 → 校验是 zip → 备份已有目录 → 解压到对应助手的 skills 目录 → 校验 SKILL.md 存在。
+
+> **一份生成逻辑，两个模板**。读 `.env`、替换占位符、「替换不干净就报错」这套逻辑两处各写一份迟早会漂移，
+> 而漂移的症状特别难查 —— 表现为「macOS 能装、Windows 装不了」。
+
+### Windows 那一条为什么这么长
+
+每一个字符都有原因，别顺手「简化」：
+
+| 这一段 | 为什么不能省 |
+| --- | --- |
+| `…SecurityProtocol=…Tls12` | 老一些的 Windows PowerShell 5.1 默认只协商 TLS 1.0，连 GitHub Pages 会以「基础连接已经关闭」这种看不出原因的错失败 |
+| `(New-Object Net.WebClient).DownloadString(…)` | 不能用 `irm`：`irm` 遇到 `application/octet-stream` 在 **PS 5.1** 上返回的是 `byte[]`，`[scriptblock]::Create` 会直接抛错 —— 而 GitHub Pages 给 `.ps1` 发的正是这个 content-type。（PS 7 上 `irm` 恰好返回字符串，所以这个坑**本地用 pwsh 试是试不出来的**，只有 Windows 自带的 5.1 上才现形） |
+| `[scriptblock]::Create(…)` + `&` | 不能用 `irm … \| iex`：后者没法给脚本传参数，而我们要把 slug 和 agent 交进去 |
+| 不走 `powershell -File` | 那得先把脚本落盘，还会撞上 ExecutionPolicy。`[scriptblock]::Create` 不落盘，也就不受执行策略限制 |
+
+⚠️ 支持的目标目录在 **三个地方**定义，必须一致：
 
 | 位置 | 用途 |
 | --- | --- |
 | `src/data/site.js` 的 `agents` | 前端渲染「会装到哪」 |
-| `scripts/install-sh.tpl` 的 `dir_for_agent()` | 脚本实际落盘位置 |
+| `scripts/install-sh.tpl` 的 `dir_for_agent()` | macOS/Linux 脚本实际落盘位置 |
+| `scripts/install-ps1.tpl` 的 `$AgentDirs` | Windows 脚本实际落盘位置 |
 
-不一致会出现「网页写着装到 A、实际装到 B」—— 改一处必须同步改另一处。
+不一致会出现「网页写着装到 A、实际装到 B」—— 改一处必须同步改另外两处。
+`installers.test.mjs` 里有一条把这三份表抓出来逐个比对。
+
+### install.ps1 上几个只在 PowerShell 里才成立的事
+
+都是在真 pwsh 里跑出来的，不是读代码看出来的：
+
+| 坑 | 事实 |
+| --- | --- |
+| **`exit` 会关掉用户的终端** | 脚本是被 `[scriptblock]::Create(…)` 之后用 `&` 调起来的，在**交互式** PowerShell 里 `exit` 直接结束整个会话（实测：`exit` 之后同一条命令串里后面的语句根本不执行）。所以失败路径一律 `throw`，**一个 `exit` 都没有** |
+| **变量名会吃掉后面的中文** | 和 bash 同一个坑，但 PowerShell 这边是**静默变空串**、不报错：`$a中文` 被解析成变量名 `a中文`。所以模板里一律写 `${VAR}`，单测里有正则钉住 |
+| **进度条会混进输出** | 非交互式宿主把进度条**渲染成文字**，`Expand-Archive` 尤其吵。而且必须用 `$global:ProgressPreference` 才压得住 —— 它来自 `Microsoft.PowerShell.Archive` **模块**，模块函数看不到调用方的局部作用域（实测：脚本内普通赋值**完全不管用**）。用完还原，别把用户的会话设置改掉 |
+| 错误提示的尾巴 | 失败时会多打一行 `Exception:`（PowerShell 对 `throw` 的标准渲染）。留着的理由：**退出码必须是 1** —— 详情页给的 AI 提示词就是让 agent 照着跑这条命令、靠退出码判断成败，静默返回 0 是更糟的错 |
 
 ---
 
@@ -131,10 +165,11 @@ src/
 └── styles/                root.css（主题变量）/ base.css / hub.css
 
 scripts/
-├── install-sh.tpl         install.sh 模板
-├── gen-install-sh.mjs     prebuild 钩子：注入端点
+├── install-sh.tpl         install.sh 模板（macOS / Linux）
+├── install-ps1.tpl        install.ps1 模板（Windows / PowerShell）
+├── gen-installers.mjs     predev / prebuild 钩子：把端点注入上面两个模板
 ├── check-supabase-env.mjs 构建期核对（分 warning / error 两档）
-└── tests/                 单测：解析 26 · 分类 23 · 时间 13 · 卡片渲染 13 · 站主删除 20 · install.sh 9
+└── tests/                 单测 136 条（明细见下面「验证」）
 
 supabase/
 ├── migrations/001-skills.sql        表 + RLS + 5 个 SECURITY DEFINER 函数
@@ -149,13 +184,53 @@ supabase/
 
 ---
 
+## 界面一致性：三个「上传技能」按钮为什么会长得不一样
+
+站上有**三个**入口都叫「上传技能」：顶栏一个、首页空状态一个、详情页空状态一个。
+它们本该长得一模一样，但实际有一个明显矮一截、图标也灰扑扑的。
+
+**根因不在按钮，在 CSS**。空状态那个图标原本是 `EmptyState.vue` 里一个**装饰性**的
+`<AppIcon>`，`hub.css` 里用后代选择器给它上色：
+
+```css
+.empty svg { fill: var(--hub_muted); opacity: .6; }   /* ← 元凶 */
+```
+
+而 `EmptyState` 有个 `<slot />`，首页/详情页把**「上传技能」按钮塞进了这个插槽**。
+后代选择器不看组件边界 —— 于是 `.empty svg` 顺带命中了**插槽里按钮自己的图标**。
+两者特异性都是 `(0,1,1)`（`.empty svg` 与 `.btn svg` 打平），**按源码顺序后者被前者盖掉**，
+图标就变灰了；尺寸则是因为那个入口此前多写了个 `.sm`。
+
+修法：
+
+- 装饰图标改用**组件自己的 scoped 类** `.empty-icon` —— scoped 属性让样式不可能漏出去；
+- `hub.css` 里删掉 `.empty svg`，并**留一条注释说明为什么不能再加回来**；
+- 三处按钮统一用默认尺寸（38px），顶栏那个图标按钮也固定成 38px 见方，整排同高。
+
+钉住这件事的是 `scripts/tests/ui-consistency.test.mjs`：它**剥掉注释后**再扫
+`hub.css`，只要出现 `.empty svg` 这类会漏进插槽的后代选择器就报红。
+
+> 「先剥注释」不是洁癖 —— `hub.css` 里那段**解释「为什么不能写 `.empty svg`」的注释**
+> 本身就含这串字，不剥的话断言会永远为真。所以这一步**两个方向都造了红**：
+> 注释里放一条**完整规则**时应当 6/6 绿（正确剥掉）；把 `stripComments` 改成
+> `return src` 之后，那条断言**立刻变红**。只验前一半，就只是「碰巧没踩到」。
+
+---
+
 ## 验证
 
 ```bash
-npm test          # 104 条断言：解析 26 · 分类 23 · 站主删除 20 · 时间 13 · 卡片渲染 13 · install.sh 9
-npm run build     # 构建（会先跑 gen-install-sh）
+npm test          # 136 条断言：解析 26 · 分类 25 · 站主删除 20 · 时间 13
+                  #              卡片渲染 11 · 安装器 21 · 安装命令 14 · 界面一致性 6
+npm run build     # 构建（会先跑 gen-installers，生成 install.sh + install.ps1）
 npm run check:env # 后端连通性（未配则只警告）
 ```
+
+> **跑 Windows 那部分要本机有 PowerShell**。默认找 PATH 上的 `pwsh`；本机没装的话，
+> 那 8 条（解析器 / 参数校验 / `-Help` / 进度条还原 / 三条端到端）会**跳过而不是失败** ——
+> 跳过会在 tap 里明写 `# SKIP 本机没有 pwsh`，不会伪装成绿灯。
+> 指定别的解释器：`PWSH_PATH=/path/to/pwsh npm test`。
+> 装了的话应当是 **136 pass / 0 fail / 0 skipped**（本机实测 12.1s）。
 
 按本项目的纪律，**写完断言要故意造红一次**，确认它真会失败。已验证：
 
@@ -189,6 +264,14 @@ npm run check:env # 后端连通性（未配则只警告）
 | 详情页绕过 `useSkillDelete` 直接调 API | 1 条 | ✅ 1 条 |
 | 详情页删除按钮去掉 `v-if="isAdmin"` | 1 条 | ✅ 1 条 |
 | **文案 key 写错顺序**（`confirmDelete` → `deleteConfirm`） | 2 层 | ✅ 单测 1 条 + **浏览器 2 条**（见下） |
+| 把 `install.ps1` 的 `throw ''` 换回 `exit 1` | 1 条 | ✅ 1 条（`not ok 7`，「一个 `exit` 都不能有」） |
+| 去掉 `$global:ProgressPreference` 的 `$global:` | 1 条 | ✅ 1 条（`not ok 8`，普通赋值压不住模块函数的进度条） |
+| 改坏 `install-ps1.tpl` 里一个 agent 目录 | 2 条 | ✅ 2 条（三处目录表比对 + 一条端到端） |
+| 把注入守卫改回 `-eq '__SUPABASE_URL__'` | **6 条** | ✅ 6 条（自指哨兵：全局替换会把守卫本身也换掉） |
+| `install.ps1` 里 `${Agent}` 写成裸 `$Agent` | 1 条 | ✅ 1 条（变量名吃掉后面的中文 → 静默变空串） |
+| 把 `.empty svg` 加回 `hub.css` | 1 条 | ✅ 1 条（后代选择器漏进插槽，按钮图标被改色） |
+| 在 `hub.css` **注释里**放一条完整的 `.empty svg { … }` | 0 条（该绿） | ✅ 6/6 绿（证明剥注释真的生效） |
+| 把 `stripComments` 改成 `return src`（停用剥注释） | 1 条 | ✅ 1 条（少了这条，守卫会被一句注释骗过去） |
 
 后端迁移另有一层离线验证（PGlite 真跑 SQL），见 `supabase/README.md`：
 
@@ -230,26 +313,48 @@ npm run check:env # 后端连通性（未配则只警告）
 
 ### 对着真实后端的端到端验证
 
-三层都跑过（脚本在本机 AI 工作区，未进仓库）：
+五层都跑过（脚本在本机 AI 工作区，未进仓库）：
 
 | 层 | 验什么 | 结果 |
 | --- | --- | --- |
-| 只读 | 首页无演示模式横幅、真的发出 `list_skills` 且 200、渲染卡片数与后端 `total` 一致、`install.sh` 端点已注入 | 17/17（线上） |
+| 只读 | 首页无演示模式横幅、真的发出 `list_skills` 且 200、渲染卡片数与后端 `total` 一致、`install.sh` **和** `install.ps1` 两个端点都已注入 | 17/17（线上） |
 | 写入 | 上传 zip → 落库 → 详情页 → 下载（**下载字节的 sha256 等于库内 hash**）→ 下载量/安装量落库 → 列表 → 元信息 → 同内容去重 `exists` → 非法提交被拒 | 37/37 |
-| 安装 | `curl … \| bash -s -- <slug> --agent workbuddy`，用临时 `HOME` 真装一遍，校验文件落地与内容逐字节一致；含缺 slug / 非法 agent / 含引号 slug 三个造红 | 16/16 |
+| 安装（macOS/Linux） | `curl … \| bash -s -- <slug> --agent workbuddy`，用临时 `HOME` 真装一遍，校验文件落地与内容逐字节一致；含缺 slug / 非法 agent / 含引号 slug 三个造红 | 16/16 |
+| 安装（Windows） | 同样的端到端在**真 pwsh** 里跑 `install.ps1`（假 Supabase 发真 zip）：装好 → 再装一次先备份且**保住用户改过的文件** → 临时目录清干净 → 中文 slug 原样往返 → `not_found` 给可操作提示 | 8/8 |
+| 界面 | 三个「上传技能」按钮逐个量盒模型与计算样式，要求**完全一致**；Windows 那条长命令在代码块里不横向溢出、但复制到的仍是**一整行** | 31/31 + 14/14 |
 
 > ⚠️ 本机环境注意：工具 shell 注入的 `http_proxy`（`127.0.0.1:55262`）对
 > `supabase.co` 不好使，curl 走它会 `SSL_ERROR_SYSCALL`，而直连 0.38s 就通。
 > 跑这些验证要 `--noproxy '*'` 或清掉代理变量。这是本机问题，不是脚本缺陷 ——
 > 所以修的是验证脚本，**没给 `install.sh` 加 `--noproxy`**（那会坑到真正需要代理的用户）。
+>
+> Windows 那边是**另一个坑**：`HttpClient` 会读系统代理，而 `.NET` 对一个
+> **不可路由的端口**（比如 `127.0.0.1:1`）不会快速失败，而是**硬等满 `-TimeoutSec`**。
+> 所以跑 ps1 的测试时必须把 `http_proxy` 一族从子进程 env 里删掉、并设
+> `NO_PROXY=127.0.0.1,localhost`，否则每条用例都要干等 30–60 秒（看着像「连不上网」）。
 
-**造红过程中真的抓出两个 bug**（不是演练，是先写测试时暴露的）：
+**造红过程中真的抓出三个 bug**（不是演练，是先写测试时暴露的）：
 
 1. 没有 SKILL.md 的包会让 `meta.tags.slice()` 抛 TypeError —— 用户看到的是
    「上传崩了」而不是「缺少 SKILL.md」。
 2. 路径排序用了 `localeCompare`，**受运行环境 locale 影响**。而文件顺序决定
    `packZip` 的字节序 → 决定内容 hash。不同地区的人上传同一份技能会算出两个 hash，
    **去重直接失效**。改成码位比较后与环境无关。
+3. `install.ps1` 的 slug 校验**比 `install.sh` 少查一个双引号**。症状是
+   「macOS 报错、Windows 装上了」—— 因为 `-Slug 'x","p_slug":"y'` 能溜过 PowerShell
+   的校验，直到网络层才出问题。修法是把两边的字符类写成**同一串** `[\x00-\x1f"\\]`，
+   并由三处比对那条断言钉住。
+
+> 🔴 **一个把自己堵死的测试**（真实踩到，症状极具误导性）：
+> 写 ps1 的端到端时用了 `spawnSync` 去起 pwsh，而假 Supabase 是**跑在同一个 Node 进程里**的
+> 临时 HTTP server —— `spawnSync` 把事件循环整个堵死，子进程发出的请求**永远没人应答**。
+>
+> 表现是每条用例都在**整 30 秒**后失败，看起来完全像「脚本连不上网」，
+> 于是很容易跑去查网络 / 代理（也确实会查出一堆无关的线索：直连是 `Connection refused`、
+> 走沙箱代理是 `502`）。真正的判据是**失败时间整齐划一** —— 真实网络故障不会这么齐。
+>
+> 改成异步 `spawn` + `Promise` 后，整个套件从 **185s → 10s**。
+> 记住这条：**在进程内起服务、又要在测试里连它，就不能用 `spawnSync`。**
 
 ---
 
@@ -376,6 +481,12 @@ npm run check:env # 后端连通性（未配则只警告）
 
 用 Variables 而不是 Secrets：anon key 本来就要发给浏览器，放 Variables 更好排查。
 **真正的秘密是 `service_role`，那个绝不能进这个工作流**（`check:env` 会拦）。
+
+构建完还有一道**产物核对**：`dist/install.sh` 与 `dist/install.ps1` **两个文件都要**
+能 `grep` 到 `VITE_SUPABASE_URL`，否则直接 `exit 1` 让流水线红。
+理由是这样错最容易漏到线上：占位符没替换干净时，脚本本身**语法完全合法**，
+只是跑起来会去连一个叫 `__SUPABASE_URL__` 的域名 —— 用户在终端里才看到错。
+所以宁可让 CI 在发布前拦住。**加安装器时别忘了往这个循环里添一个文件名。**
 
 ---
 

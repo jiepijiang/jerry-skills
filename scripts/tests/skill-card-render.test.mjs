@@ -15,24 +15,17 @@
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 
-import { createServer } from 'vite'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url))
+import { ROOT, createSsrServer } from './_ssr.mjs'
 
 let server
 let SkillCard
 
 before(async () => {
-  server = await createServer({
-    root: ROOT,
-    logLevel: 'error',
-    appType: 'custom',
-    server: { middlewareMode: true, hmr: false, watch: null },
-  })
+  server = await createSsrServer()
   ;({ default: SkillCard } = await server.ssrLoadModule('/src/components/SkillCard.vue'))
 })
 

@@ -214,6 +214,39 @@
   fill: #fff;
 }
 
+/* 危险操作（站主专属的删除）。
+   默认是**描边**而不是实心红：它在详情页里跟「下载 .zip」并排，
+   实心红会喧宾夺主 —— 下载才是这个页面 99% 的人要干的事。
+   只有二次确认弹窗里的「确认删除」用 .solid 实心。 */
+.btn.danger {
+  border-color: #ff6b6b59;
+  color: var(--hub_err);
+}
+
+.btn.danger svg {
+  fill: var(--hub_err);
+}
+
+.btn.danger:hover {
+  background: #ff6b6b1a;
+  border-color: var(--hub_err);
+}
+
+.btn.danger.solid {
+  background: var(--hub_err);
+  border-color: transparent;
+  color: #1b1b1b;
+  font-weight: 600;
+}
+
+.btn.danger.solid svg {
+  fill: #1b1b1b;
+}
+
+.btn.danger.solid:hover {
+  background: #ff8585;
+}
+
 .btn.sm {
   font-size: 13px;
   height: 32px;

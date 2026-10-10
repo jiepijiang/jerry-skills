@@ -1,18 +1,30 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
+import AppDialog from '@/components/AppDialog.vue'
 import FileTree from '@/components/FileTree.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import { agents, DEFAULT_AGENT, categoryLabel, categoryIcon, metricNotes, SITE_URL } from '@/data/site'
+import {
+  adminNotes,
+  agents,
+  DEFAULT_AGENT,
+  categoryLabel,
+  categoryIcon,
+  metricNotes,
+  SITE_URL,
+} from '@/data/site'
 import { buildTree, formatBytes } from '@/lib/parseSkill'
 import { absoluteTime, relativeTime } from '@/lib/time'
 import { agentPrompt, cliCommand } from '@/lib/install'
 import { downloadSkill, errorText, getSkill, registerInstall, saveBlob } from '@/lib/skills-api'
+import { adminToken, isAdmin } from '@/lib/admin'
+import { useSkillDelete } from '@/composables/useAdmin'
 import { useCopy } from '@/composables/useCopy'
 import { toast } from '@/composables/useToast'
 
 const route = useRoute()
+const router = useRouter()
 
 const skill = ref(null)
 const loading = ref(true)
@@ -22,6 +34,10 @@ const downloading = ref(false)
 
 const tab = ref('cli') // cli | agent
 const agent = ref(DEFAULT_AGENT)
+
+/* 站主专属：删除 */
+const confirmOpen = ref(false)
+const { busy: deleting, remove } = useSkillDelete()
 
 const { done: cmdDone, copy: copyCmd } = useCopy({ silent: true })
 const { done: promptDone, copy: copyPrompt } = useCopy({ silent: true })
@@ -95,6 +111,16 @@ async function onDownload() {
   }
 }
 
+/**
+ * 删除。成功之后回列表 —— 留在这个页面只会看到「没有找到这个技能」，
+ * 那不是一个好的收尾。
+ */
+async function onDelete() {
+  const ok = await remove(skill.value.slug, adminToken.value)
+  confirmOpen.value = false
+  if (ok) router.push('/')
+}
+
 watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
 </script>
 
@@ -162,6 +188,11 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
             <button class="btn primary" :class="{ loading: downloading }" :disabled="downloading" @click="onDownload">
               <AppIcon name="download" :size="15" fill="#fff" />
               下载 .zip
+            </button>
+            <!-- 站主专属：解锁之后才出现（见页脚的「管理」入口） -->
+            <button v-if="isAdmin" class="btn danger" type="button" @click="confirmOpen = true">
+              <AppIcon name="trash" :size="15" />
+              {{ adminNotes.deleteButton }}
             </button>
           </div>
         </div>
@@ -277,6 +308,39 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
         </div>
         <p v-else class="block-hint">这个技能包里没有 SKILL.md 内容。</p>
       </section>
+
+      <!-- ------------------------------------------------ 删除（站主专属） -->
+      <AppDialog
+        :open="confirmOpen"
+        danger
+        icon="trash"
+        :title="adminNotes.deleteTitle"
+        @close="confirmOpen = false"
+      >
+        <p class="dlg-p">确定要删除 <b>{{ skill.name }}</b> 吗？</p>
+        <p class="dlg-p">
+          它被下载过 {{ skill.downloads }} 次、安装命令被复制过 {{ skill.installs }} 次，
+          这些数字会一起消失。链接 <code>/skills/{{ skill.slug }}</code> 会立刻失效，
+          别人再打开只会看到「没有找到」。
+        </p>
+        <p class="dlg-p dlg-note">
+          服务端会先存一份快照到回收站（保留 90 天）。要恢复就在 Supabase 里按
+          supabase/README.md 那节操作 —— 界面上没有恢复入口。
+        </p>
+
+        <template #actions>
+          <button class="btn sm" type="button" @click="confirmOpen = false">{{ adminNotes.cancel }}</button>
+          <button
+            class="btn sm danger solid"
+            :class="{ loading: deleting }"
+            type="button"
+            :disabled="deleting"
+            @click="onDelete"
+          >
+            {{ adminNotes.confirmDelete }}
+          </button>
+        </template>
+      </AppDialog>
     </template>
   </div>
 </template>
@@ -393,6 +457,14 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
+}
+
+/* 「下载 .zip」和站主的「删除技能」并排。删除是描边红（见 hub.css 的 .btn.danger），
+   不抢下载的视觉权重。 */
+.head-actions {
+  align-items: center;
+  display: flex;
+  gap: 9px;
 }
 
 .meta {
@@ -606,6 +678,30 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ------------------------------------------------------------ 弹窗内容 */
+.dlg-p {
+  margin: 0;
+}
+
+.dlg-p + .dlg-p {
+  margin-top: 8px;
+}
+
+.dlg-p b {
+  color: var(--main_text_color);
+}
+
+.dlg-p code {
+  background: var(--hub_code_bg);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.dlg-note {
+  font-size: 12.5px;
+  opacity: 0.8;
 }
 
 @media (max-width: 860px) {

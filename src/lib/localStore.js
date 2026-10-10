@@ -14,14 +14,21 @@
  */
 import { zipSync, strToU8 } from 'fflate'
 import { parseSkill, toBase64, fromBase64 } from './parseSkill'
+import { SkillError } from './supabase'
 import { SEED_SKILLS } from './seedSkills'
 import { limits } from '@/data/site'
 
 const LS_KEY = 'jerry-skills:local:v1'
+/** 本地模式里被「删掉」的**种子**技能。用户上传的那些直接从 LS_KEY 里消失就行，
+ *  种子是每次启动重新解析出来的，不记一笔的话刷新就又冒出来了 —— 「删了又回来」
+ *  是最容易让人以为功能坏了的一种表现。 */
+const LS_DELETED = 'jerry-skills:local:deleted:v1'
 
 let records = null // Map<slug, record>
 let userSlugs = null // Set<slug>：来自 localStorage 或本次会话上传的（要持久化）
+let deletedSeeds = null // Set<slug>
 let building = null
+let warnedAuth = false
 
 function readLS() {
   try {
@@ -43,6 +50,24 @@ function writeLS() {
   }
 }
 
+function readDeleted() {
+  try {
+    const raw = localStorage.getItem(LS_DELETED)
+    const arr = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(arr) ? arr.filter((s) => typeof s === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeDeleted() {
+  try {
+    localStorage.setItem(LS_DELETED, JSON.stringify([...deletedSeeds]))
+  } catch {
+    /* 忽略 */
+  }
+}
+
 /** 把「原始文件表」打成 zip，再走一遍真实解析 —— 演示数据与线上同构 */
 async function parseSeed(filesObj) {
   const entries = {}
@@ -58,12 +83,17 @@ export async function ensureLocal() {
     const map = new Map()
     const user = new Set()
     const now = Date.now()
+    deletedSeeds = readDeleted()
 
     let i = 0
     for (const seed of SEED_SKILLS) {
       const r = await parseSeed(seed.files)
       if (!r.ok || !r.skill) continue
       const s = r.skill
+      // ⚠️ 先 i++ 再判断要不要跳过：否则删掉一条之后，后面几条的
+      //    初始下载量会整体往前挪一格，「最多下载」的排序看着就变了
+      const idx = i++
+      if (deletedSeeds.has(s.slug)) continue
       map.set(s.slug, {
         slug: s.slug,
         name: s.name,
@@ -80,11 +110,10 @@ export async function ensureLocal() {
         hash: s.hash,
         bundle_b64: toBase64(s.bundle),
         // 种子给一些初始数字，「最多下载 / 最多安装」排序才有东西可排
-        downloads: 128 - i * 19,
-        installs: 41 - i * 7,
-        created_at: new Date(now - (i + 1) * 3 * 86400000).toISOString(),
+        downloads: 128 - idx * 19,
+        installs: 41 - idx * 7,
+        created_at: new Date(now - (idx + 1) * 3 * 86400000).toISOString(),
       })
-      i++
     }
 
     for (const rec of readLS()) {
@@ -208,4 +237,49 @@ export async function localInstall(slug) {
   rec.installs += 1
   if (userSlugs.has(slug)) writeLS()
   return { installs: rec.installs }
+}
+
+/* -------------------------------------------------------------- 站主专属 */
+
+/**
+ * 本地演示模式下的口令校验。
+ *
+ * 🔴 这里**没有真正的鉴权** —— 任何非空口令都算通过。必须吵一声，
+ *    否则「本地随便输就过了」会被误读成「线上也这么松」，
+ *    或者更糟：以为已经验证过鉴权逻辑了。
+ *    真正的口令校验只存在于 Supabase 那份 SQL 里（离线验不了它，
+ *    所以另有一份 PGlite 测试专门验，见 supabase/verify-admin-delete.mjs）。
+ */
+function warnLocalAuth() {
+  if (warnedAuth) return
+  warnedAuth = true
+  console.warn(
+    '[jerry-skills] 本地演示模式**没有真正的鉴权**：任何非空口令都会通过，' +
+      '删除也只影响这台浏览器的 localStorage，不影响线上数据。',
+  )
+}
+
+export async function localAdminCheck(token) {
+  warnLocalAuth()
+  return String(token || '').length > 0
+}
+
+export async function localAdminDelete(slug, token) {
+  warnLocalAuth()
+  // 和线上对齐：口令错要抛 unauthorized，调用方才有统一的错误分支
+  if (!String(token || '').length) throw new SkillError('unauthorized')
+
+  const map = await ensureLocal()
+  const rec = map.get(slug)
+  if (!rec) throw new SkillError('not_found')
+
+  map.delete(slug)
+  if (userSlugs.has(slug)) {
+    userSlugs.delete(slug)
+    writeLS()
+  } else {
+    deletedSeeds.add(slug)
+    writeDeleted()
+  }
+  return { slug, name: rec.name }
 }

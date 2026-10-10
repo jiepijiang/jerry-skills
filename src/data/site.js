@@ -157,3 +157,31 @@ export const footer = {
     { label: '知识库', href: 'https://jiepijiang.github.io/jerry-notes/' },
   ],
 }
+
+/**
+ * 站主管理（删除技能）的界面文案。
+ *
+ * ⚠️ 口令本身**不在前端**：服务端只存「盐 + sha256(盐 || 口令)」，
+ *    前端拿到的口令只放在 sessionStorage，关标签页即失效。
+ *    见 supabase/migrations/002-admin-delete.sql。
+ *
+ * 为什么入口做得这么不显眼（页脚一个小字）：删除权只属于站主一个人，
+ * 没必要让每个访客都看见「这里能删东西」并去试口令。
+ */
+export const adminNotes = {
+  entry: '管理',
+  entryActive: '管理中',
+  title: '站主管理',
+  desc: '输入管理口令后，列表和详情页会出现删除按钮。',
+  placeholder: '管理口令',
+  submit: '解锁',
+  logout: '退出管理',
+  unlocked: '已解锁。列表卡片和技能详情页上现在都有删除按钮。',
+  /** 本地演示模式下的额外提示 —— 那时候根本没有服务端可验 */
+  localHint: '当前是本地演示模式：没有真正的鉴权，任何非空口令都会通过，删除也只影响这台浏览器。',
+  storageHint: '口令只保存在这个标签页里，关掉标签页就失效，需要重新输入。',
+  deleteButton: '删除技能',
+  deleteTitle: '删除技能',
+  confirmDelete: '确认删除',
+  cancel: '取消',
+}

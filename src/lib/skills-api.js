@@ -86,6 +86,37 @@ export async function registerInstall(slug) {
   return { installs: d.installs }
 }
 
+/* -------------------------------------------------------------- 站主专属 */
+
+/**
+ * 校验管理口令。通过 = 解锁。
+ *
+ * 单独一次往返，是为了让界面在**输入的那一刻**就能说「口令不对」，
+ * 而不是等站主点完「确认删除」才发现 —— 那时技能已经删了一半的确认流程，
+ * 体验上会很别扭。
+ *
+ * ⚠️ 参数名 `p_token` 必须和 SQL 函数签名一致：PostgREST 按**名字**匹配，
+ *    写错是 404（不是 400），而且会表现为「口令怎么都不对」这种误导性症状。
+ */
+export async function adminCheck(token) {
+  if (!READY) {
+    warnLocalMode()
+    return local.localAdminCheck(token)
+  }
+  await rpc('skill_admin_check', { p_token: token })
+  return true
+}
+
+/** 删除技能（站主专属，硬删 + 服务端留回收站）。返回 { slug, name } */
+export async function adminDelete(slug, token) {
+  if (!READY) {
+    warnLocalMode()
+    return local.localAdminDelete(slug, token)
+  }
+  const d = await rpc('skill_admin_delete', { p_slug: slug, p_token: token }, { timeout: 30000 })
+  return { slug: d.slug, name: d.name }
+}
+
 /* ------------------------------------------------------------------ 工具 */
 
 /** 触发浏览器下载 */
@@ -142,13 +173,26 @@ const ERROR_TEXT = {
   invalid_payload: '提交的数据不完整或格式不对。',
   name_taken: '同名技能已存在，请改个名字。',
   not_found: '没有找到这个技能。',
+  unauthorized: '管理口令不对。',
+  /** 站主专属的限流文案 —— 和「上传太频繁」是两件事，不能共用一句 */
+  admin_rate_limited: '口令试错的次数太多了，请过 1 小时再试（或在 Supabase 里重跑 set-admin-token.sql 解锁）。',
   server: '服务器开小差了，请稍后重试。',
   http_400: '请求参数有误（可能是前后端版本不一致）。',
   http_404: '接口不存在（多半是数据库函数还没部署）。',
 }
 
-export function errorText(e) {
-  if (e instanceof SkillError) return ERROR_TEXT[e.code] || `出错了（${e.code}）`
+/**
+ * 错误 → 文案。按 code 查表，不做字符串匹配 ——
+ * 后者遇到后端改文案就静默失效（主站留言板踩过）。
+ *
+ * `admin: true` 时 rate_limited 换成站主视角的说明：同一个 code 在「上传」和
+ * 「试口令」两个场景下该说的话完全不同，共用一句会让人以为是上传出了问题。
+ */
+export function errorText(e, { admin = false } = {}) {
+  if (e instanceof SkillError) {
+    if (admin && e.code === 'rate_limited') return ERROR_TEXT.admin_rate_limited
+    return ERROR_TEXT[e.code] || `出错了（${e.code}）`
+  }
   const m = String(e?.message || '')
   if (m.includes('Failed to fetch') || m.includes('NetworkError')) return ERROR_TEXT.network
   return '出错了，请稍后重试。'

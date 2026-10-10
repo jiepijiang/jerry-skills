@@ -59,6 +59,17 @@ const hasMore = computed(() => items.value.length < total.value)
 const isFiltering = computed(() => category.value !== 'all' || query.value.trim() !== '')
 
 /**
+ * 卡片上删掉一条之后，就地把它从列表里拿掉，**不重新拉一次接口**。
+ * 重拉的话：如果当前页只剩 1 条，整页会突然空掉（后端那一页已经没数据了），
+ * 而且「加载更多」的 offset 是按 items.length 算的，重拉会把分页算乱。
+ */
+function onDeleted(slug) {
+  const before = items.value.length
+  items.value = items.value.filter((s) => s.slug !== slug)
+  if (items.value.length < before) total.value = Math.max(0, total.value - 1)
+}
+
+/**
  * 「浏览全部」滚到筛选栏。
  *
  * 原来是 `<a href="#browse">` 的原生锚点跳转 —— 瞬移，很生硬。改成平滑滚动。
@@ -159,7 +170,7 @@ onMounted(() => load())
       </template>
 
       <template v-else-if="items.length">
-        <SkillCard v-for="s in items" :key="s.slug" :skill="s" />
+        <SkillCard v-for="s in items" :key="s.slug" :skill="s" @deleted="onDeleted" />
       </template>
 
       <template v-else>

@@ -116,14 +116,17 @@ src/
 ├── lib/
 │   ├── frontmatter.js     YAML 子集解析（自写，不引 js-yaml —— 输入不可信）
 │   ├── parseSkill.js      ★ 核心：zip → 结构化技能对象（纯函数，可单测）
+│   ├── category.js        ★ 分类推断（全站唯一的 key 真源）
+│   ├── time.js            时间显示（卡片与详情页共用一份）
+│   ├── admin.js           站主口令（sessionStorage，关标签页即失效）
 │   ├── install.js         安装命令 / Agent 提示词生成
 │   ├── supabase.js        PostgREST 直连（不引 SDK）
 │   ├── skills-api.js      数据门面：READY ? RPC : localStore
 │   ├── localStore.js      本地演示模式（种子 + localStorage）
 │   └── seedSkills.js      演示用种子技能
-├── components/            AppIcon / SkillCard / FileTree / HubToast / …
+├── components/            AppIcon / SkillCard / AppDialog / FileTree / HubToast / …
 ├── views/                 HomeView / SkillDetailView / UploadView
-├── composables/           useCopy / useToast / useSearch
+├── composables/           useCopy / useToast / useSearch / useAdmin
 ├── data/site.js           ★ 所有文案、分类、目标目录、限额
 └── styles/                root.css（主题变量）/ base.css / hub.css
 
@@ -131,12 +134,17 @@ scripts/
 ├── install-sh.tpl         install.sh 模板
 ├── gen-install-sh.mjs     prebuild 钩子：注入端点
 ├── check-supabase-env.mjs 构建期核对（分 warning / error 两档）
-└── tests/parse-skill.test.mjs  解析层单测（26 条）
+└── tests/                 单测：解析 26 · 分类 23 · 时间 13 · 卡片渲染 13 · 站主删除 20 · install.sh 9
 
 supabase/
-├── migrations/001-skills.sql  表 + RLS + 5 个 SECURITY DEFINER 函数
-├── preflight-check.sql        跑迁移**之前**先跑的只读冲突预检
-└── verify-migration.mjs       PGlite 离线验证（共用项目替身 + 前后快照对比）
+├── migrations/001-skills.sql        表 + RLS + 5 个 SECURITY DEFINER 函数
+├── migrations/002-admin-delete.sql  站主删除：口令校验 + 回收站 + 双重重限流
+├── set-admin-token.sql              设置 / 更换管理口令（**口令不进 git**）
+├── preflight-check.sql              跑迁移**之前**先跑的只读冲突预检
+├── reset-skills.sql                 清空全部技能数据（需手动跑）
+├── verify-migration.mjs             PGlite 离线验证（共用项目替身 + 前后快照对比）
+├── verify-admin-delete.mjs          PGlite 离线验证（002 的安全逻辑，63 项）
+└── verify-reset-sql.mjs             PGlite 离线验证（清库脚本）
 ```
 
 ---
@@ -144,7 +152,7 @@ supabase/
 ## 验证
 
 ```bash
-npm test          # 84 条断言：解析 26 · 分类 23 · 时间 13 · 卡片渲染 13 · install.sh 9
+npm test          # 104 条断言：解析 26 · 分类 23 · 站主删除 20 · 时间 13 · 卡片渲染 13 · install.sh 9
 npm run build     # 构建（会先跑 gen-install-sh）
 npm run check:env # 后端连通性（未配则只警告）
 ```
@@ -170,6 +178,17 @@ npm run check:env # 后端连通性（未配则只警告）
 | `metricNotes.installs` 改成短标签 | 1 条 | ✅ 1 条（口径说明） |
 | 详情页安装区的说明不再引用 `metricNotes` | 1 条 | ✅ 1 条（安装区口径检查） |
 | 删掉说明正文但保留提到「复制次数」的注释 | 1 条 | ✅ 1 条（证明注释剥除真的生效） |
+| 卡片删除按钮去掉 `v-if="isAdmin"` | 1 条 | ✅ 1 条（未解锁就不该渲染） |
+| 把删除按钮挪进 `<router-link>` 里 | 1 条 | ✅ 1 条（`<button>` 嵌 `<a>` 是非法嵌套） |
+| `skills-api` 把 `p_token` 写成 `p_pass` | 1 条 | ✅ 1 条（跨文件比对 SQL 签名） |
+| `skills-api` 把 `p_slug` 写成 `slug` | 1 条 | ✅ 1 条（同上） |
+| 忘了给 `skill_admin_delete` 发 `grant` | 1 条 | ✅ 1 条（线上 404，本地无感） |
+| 忘了 `revoke` 内部函数 | 1 条 | ✅ 1 条（anon 会拿它当口令预言机） |
+| 图标名拼错（`trash` → `trashx`） | 1 条 | ✅ 1 条（否则渲染成一片空白） |
+| 首页忘了接 `@deleted` | 1 条 | ✅ 1 条 |
+| 详情页绕过 `useSkillDelete` 直接调 API | 1 条 | ✅ 1 条 |
+| 详情页删除按钮去掉 `v-if="isAdmin"` | 1 条 | ✅ 1 条 |
+| **文案 key 写错顺序**（`confirmDelete` → `deleteConfirm`） | 2 层 | ✅ 单测 1 条 + **浏览器 2 条**（见下） |
 
 后端迁移另有一层离线验证（PGlite 真跑 SQL），见 `supabase/README.md`：
 
@@ -181,6 +200,21 @@ npm run check:env # 后端连通性（未配则只警告）
 | 偷偷给 `bookmarks` 加一列 | 1 条 | ✅ 1 条（列快照对比抓到） |
 
 基线 `51/51`。
+
+002 的离线验证（`verify-admin-delete.mjs`，基线 `63/63`）另有 8 个造红，
+每一个都如期让**指定的那条**断言变红：去掉口令校验 / 校验恒真 / 去掉全局上限 /
+不写回收站 / 不 `revoke` / 哈希丢掉盐 / 不 `revoke` 内部函数 / 限流把成功也计入。
+
+> 🔴 **一个只有看截图才发现的 bug**（真实踩到，不是演练）：
+> 确认按钮的文案 key 我在 `site.js` 里写成了 `deleteConfirm`，而两个模板引用的都是
+> `adminNotes.confirmDelete` —— 一个词序之差。Vue 对 `undefined` 的插值**不报错**，
+> 只是渲染成空串，于是那个按钮变成**一颗纯红色药丸、上面一个字都没有**。
+> 单测全绿、构建全绿、**连浏览器功能测试也全绿**（按钮照样能点、技能照样删得掉），
+> 因为没有任何一条断言在检查「按钮上有没有字」。
+>
+> 修完之后补了两层断言：单测里「模板引用的文案 key 必须在 `site.js` 里定义且非空」，
+> 以及浏览器里「弹窗每个按钮的 `textContent` 不能为空」。
+> 两个都实测过会红（单测 `not ok`、浏览器 `""(25px) ← 有 1 个是空的`）。
 
 ### 对着真实后端的端到端验证
 
@@ -269,6 +303,54 @@ npm run check:env # 后端连通性（未配则只警告）
 
 ---
 
+## 站主删除
+
+站点上有删除按钮，但**只有站主能用**。这个站没有账号体系，所以「站主」靠一个
+**管理口令**认人：口令由站主自己在 Supabase 里设，服务端只存
+`sha256(盐 || 口令)`，**不存明文**。
+
+| 在哪 | 什么 |
+| --- | --- |
+| 解锁入口 | 页脚最右边的小字「管理」 |
+| 口令存在哪 | `sessionStorage` —— 刷新还在，**关掉标签页就没了** |
+| 删除按钮 | 解锁后：详情页头部 + 每张列表卡片右下角 |
+| 二次确认 | 两处都有，弹窗里写明「会消失什么」 |
+
+设置口令、恢复已删的技能、以及**这套机制到底挡住了什么**（含一条已知的绕过路径），
+见 `supabase/README.md`。
+
+几个刻意的决定：
+
+- **口令只放 `sessionStorage`，不放 `localStorage`**。它能删掉整站数据，
+  不该长期留在磁盘上。代价是每次新开标签页要重输一次 —— 这个操作本来就很少做。
+  （本站**没有任何 `v-html`**，技能内容全是 mustache 转义渲染的，所以并不存在
+  「上传者塞一段脚本偷口令」这条路。但依赖「今天没有 XSS」保护一个长期凭证不划算。）
+- **删除是硬删，但先备份整行到 `skills_trash`**（保留 90 天）。
+  为什么不软删（`status='deleted'`）：`publish_skill` 的去重查的是
+  `where hash = v_hash`（不带 status），软删之后同一份 zip 再上传会命中那条看不见的行 →
+  返回 `exists` 却什么都不显示；给查询加上 status 又会撞 `skills_hash_uniq` →
+  500。软删**必须**改 `publish_skill` 的语义，那是全站最核心的一段。
+  硬删 + 回收站把这份风险降成零，而且删完重传同一份 zip 完全正常。
+- **确认弹窗是 `Teleport` 到 body 的**。卡片整个是一个 `<router-link>`，
+  弹窗留在卡片内部的话，点「取消」会冒泡给链接 → 反而跳进详情页。
+- **卡片根节点是 `<div>` 而不是 `<router-link>`**。`<button>` 嵌在 `<a>` 里是
+  非法嵌套，点击归属在部分浏览器上也不可靠。现在链接只包内容、删除按钮是它的兄弟，
+  点按钮根本不会冒泡到链接 —— 不需要靠 `stopPropagation` 去救。
+- **按钮平时压得很低**（`opacity: .45`，hover 卡片才亮）。它是破坏性操作，
+  不该跟「下载量 / 安装量」抢注意力。
+
+### 验证
+
+| 层 | 验什么 | 结果 |
+| --- | --- | --- |
+| 单测 | 显隐、图标名、文案 key、RPC 参数名 ↔ SQL 签名跨文件比对 | 20 条 |
+| 离线 SQL | 口令校验 / 失败关闭 / 盐生效 / 口令错时数据必须还在 / 回收站 / 双重重限流 | 63/63 |
+| 浏览器 | 未解锁→解锁→详情页删→卡片删→退出，含「按钮不在 `<a>` 里」「按钮有文字」 | 35/35 |
+
+> ⚠️ 后端（002 迁移）需要你在 SQL Editor 里跑一次才能生效，见 `supabase/README.md`。
+
+---
+
 ## 部署
 
 推 `main` 即触发 `.github/workflows/deploy.yml`：单测 → 构建期核对 → 构建 → 核对产物 → 发布 Pages。
@@ -289,6 +371,12 @@ npm run check:env # 后端连通性（未配则只警告）
 
 - **没有账号体系**：任何人可上传，靠 IP 限流（20 次/小时）+ 体积/格式校验兜底。
   要防滥用得上登录或人工审核。
+  （**删除**是唯一的例外 —— 它要管理口令，见上面「站主删除」。
+  但上传仍然是完全开放的，这是刻意的：这是个分享站，上传门槛高就没人用了。）
+- **管理口令的限流里，按 IP 那道可以被绕过**：`_client_ip()` 取 `x-forwarded-for`
+  的第一段，而客户端能自己塞这个头。所以真正兜底的是**全站 30 次失败/小时**那道
+  全局上限（不依赖任何客户端输入）。同一个问题也存在于 `publish_skill` 的上传限流
+  （历史遗留，还没改）。详见 `supabase/README.md`。
 - **分类是启发式推断的，会判错**：没写 `category` 的技能靠关键词打分，
   遇到「什么都沾一点」的描述就可能归错类。所以推断**只用于预填表单**、
   永远允许人工改，且认不出来时宁可老实留在「其他」也不硬猜。

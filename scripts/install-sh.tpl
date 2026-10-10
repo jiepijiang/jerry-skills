@@ -45,7 +45,7 @@ jerry-skills 安装器
   cline      ~/.cline/skills
 
 示例:
-  curl -fsSL __SITE__/install.sh | bash -s -- pdf-editor --agent claude
+  curl -fsSL __SITE_URL__/install.sh | bash -s -- pdf-editor --agent claude
 EOF
 }
 

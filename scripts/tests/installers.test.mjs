@@ -24,7 +24,14 @@
  *  5. Expand-Archive 的进度条在非交互式宿主里会被渲染成文字混进输出流，
  *     而压制它必须用 `$global:ProgressPreference`（模块函数看不到调用方局部作用域）。
  *
- * 5 是「能跑但输出脏」，1~4 是「跑不起来」或「把用户终端关了」。
+ *  6. 模板里写了个**生成器不认识**的占位符，于是原样发布。真实案例：
+ *     install-sh.tpl 的 `--help` 示例里写着 `__SITE__/install.sh`，而生成器只认
+ *     `__SITE_URL__` —— 用户跑 `--help` 看到的是个连不上的地址。这类漏法能同时
+ *     躲过「残留占位符」检查（不在名单里）、CI 产物核对（只查真实 URL 在不在）
+ *     和语法检查（它只是个字符串字面量）。所以下面那条断言是**反向**查的：
+ *     模板里出现的任何 `__XXX__` 都必须认识。
+ *
+ * 5 是「能跑但输出脏」，1~4、6 是「跑不起来」或「把用户终端关了」或「发布了坏地址」。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -153,6 +160,31 @@ test('生成后没有残留占位符（两个脚本都要查）', () => {
   for (const token of ['__SUPABASE_URL__', '__SUPABASE_ANON_KEY__', '__SITE_URL__']) {
     assert.ok(!sh.includes(token), `install.sh 里不该残留 ${token}`)
     assert.ok(!ps1.includes(token), `install.ps1 里不该残留 ${token}`)
+  }
+})
+
+test('★ 模板里出现的每一个 __TOKEN__ 都必须在替换名单里（否则会原样发布）', () => {
+  // 真实踩到（上一版就有，一直漏到线上）：install-sh.tpl 的 `--help` 示例里写着
+  // `curl -fsSL __SITE__/install.sh`，而生成器只替换 `__SITE_URL__` ——
+  // 于是那串 `__SITE__` 原封不动进了产物，用户跑 `install.sh --help` 看到的
+  // 是一个连不上的地址。
+  //
+  // 为什么别的检查都没拦住它：
+  //   - 上面那条「没有残留占位符」只查 TOKENS 里那三个，`__SITE__` 不在名单里；
+  //   - CI 的产物核对查的是「真实 URL 在不在」，不看有没有别的怪 token；
+  //   - 语法完全合法（它只是个字符串字面量），`bash -n` / PS 解析器都过。
+  // 所以必须**反过来查**：模板里出现的任何 `__XXX__` 都得是认识的。
+  const TOKENS = ['__SUPABASE_URL__', '__SUPABASE_ANON_KEY__', '__SITE_URL__']
+  for (const tpl of ['install-sh.tpl', 'install-ps1.tpl']) {
+    const src = readFileSync(path.join(ROOT, 'scripts', tpl), 'utf8')
+    const found = [...new Set([...src.matchAll(/__[A-Za-z0-9_]+__/g)].map((m) => m[0]))]
+    const unknown = found.filter((t) => !TOKENS.includes(t))
+    assert.deepEqual(
+      unknown,
+      [],
+      `${tpl} 里有生成器不认识的占位符：${JSON.stringify(unknown)}\n` +
+        `要么改用 ${TOKENS.join(' / ')} 之一，要么把它加进 gen-installers.mjs 的 TOKENS。`,
+    )
   }
 })
 

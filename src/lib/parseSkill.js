@@ -177,11 +177,45 @@ export function readZip(u8) {
   return { files, warnings }
 }
 
-/** 把文件表打回 zip（条目顺序按 path 排序 → 同样的内容永远得到同样的字节） */
+/**
+ * 打包时写进 zip 条目的**固定时间戳**。
+ *
+ * 🔴 这个常量不是可有可无的装饰，去掉它去重就废了。
+ *
+ * fflate 的 zipSync 在条目没给 `mtime` 时用的是 `Date.now()`（见 fflate
+ * `esm/browser.js` 里 `new Date(f.mtime == null ? Date.now() : f.mtime)`），
+ * 于是 **同样的内容每次打包出来的字节都不一样** —— zip 头 offset 10/12 是
+ * DOS 的修改时间/日期字段，精度 2 秒，每两秒就变一次。
+ * 而本站的「同内容去重」判据就是 `skills.hash` 相等（见 001-skills.sql 的
+ * `select slug into v_existing from public.skills where hash = v_hash`）。
+ * 两者一叠加，后果是：**同一份技能重复上传永远不会被判为「已存在」**，
+ * 每次都新建一条 `xxx-2`。
+ *
+ * 线上实测过：13 条技能原样再传一遍，总数从 13 变成 17。
+ *
+ * 为什么是 `new Date(1980, 0, 1)` 而不是 `new Date(0)` 或 ISO 字符串：
+ *   - ZIP 的 DOS 时间字段**最早只能表示 1980 年**，fflate 遇到 `y < 0` 直接
+ *     `err(10)` 抛错 —— 1970 年会让上传整个挂掉；
+ *   - 用 ISO 字符串（`'1980-01-01T00:00:00Z'`）会被解析成 UTC 瞬时点，
+ *     在 UTC-8 之类时区本地读出来是 1979-12-31，同样触发上面的抛错。
+ *     多参数构造函数按**本地时间**解释，任何时区读出来都是 1980-01-01，
+ *     写进 zip 的字节因而与环境无关。
+ *
+ * ⚠️ 它必须是个**常量**。「今天零点」之类的写法看着更自然，但跨天就会变，
+ *    等于把 bug 从「每 2 秒」缩小成「每天」，问题依旧。
+ */
+const ZIP_MTIME = new Date(1980, 0, 1)
+
+/**
+ * 把文件表打回 zip。
+ *
+ * 条目顺序按 path 码位排序，时间戳固定成 ZIP_MTIME ——
+ * **同样内容必须永远得到同样的字节**，这是内容哈希与去重的前提。
+ */
 export function packZip(files) {
   const obj = {}
   for (const f of [...files].sort((a, b) => comparePath(a.path, b.path))) {
-    obj[f.path] = f.bytes
+    obj[f.path] = [f.bytes, { mtime: ZIP_MTIME }]
   }
   return zipSync(obj, { level: 6 })
 }

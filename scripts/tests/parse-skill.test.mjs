@@ -24,6 +24,7 @@ import {
   formatBytes,
   isBinary,
   normalizePath,
+  packZip,
   parseSkill,
   pickRoot,
   readZip,
@@ -203,6 +204,70 @@ test('parseSkill：哈希稳定 —— 条目顺序不同、内容相同 → 同
   const ra = await parseSkill({ name: 'a.zip', bytes: a }, LIMITS)
   const rb = await parseSkill({ name: 'b.zip', bytes: b }, LIMITS)
   assert.equal(ra.skill.hash, rb.skill.hash)
+})
+
+/* ---------------------------------------------------------------------------
+ * 🔴 下面两条是补上一个**真实的线上缺陷**（2026-10-10 抓到的）。
+ *
+ * 上面那条「哈希稳定」看着是在测稳定性，其实**永远为真**：两次 parseSkill
+ * 都在同一个进程、同一个 2 秒窗口里跑完，而 zip 头的 DOS 时间字段精度就是 2 秒
+ * —— 旧实现（zipSync 不带 mtime → 用 Date.now()）在这么短的间隔里必然算出同一个值。
+ * 于是这条断言绿了好几个月，直到真去线上传了一遍才发现去重是坏的。
+ *
+ * 教训：**测「稳定性」时不能让两次取样挨得太近**，否则测的是「碰巧相等」。
+ * 下面两条分别从「输出字节里的时间字段」和「把时钟拧到两个极端」两个角度钉它，
+ * 都不依赖两次调用之间的时间间隔。
+ * ------------------------------------------------------------------------- */
+
+/** 从 zip 里抓出每个本地文件头的 (modtime, moddate) 字段（offset 10 和 12） */
+function zipDosStamps(u8) {
+  const out = []
+  for (let i = 0; i + 14 <= u8.length; i++) {
+    // 本地文件头签名 PK\x03\x04
+    if (u8[i] === 0x50 && u8[i + 1] === 0x4b && u8[i + 2] === 0x03 && u8[i + 3] === 0x04) {
+      out.push([(u8[i + 10] | (u8[i + 11] << 8)), (u8[i + 12] | (u8[i + 13] << 8))])
+    }
+  }
+  return out
+}
+
+test('★ packZip 的时间戳必须是常量 —— 不能把「当前时间」写进 zip 头', () => {
+  const files = [
+    { path: 'SKILL.md', bytes: strToU8(MD) },
+    { path: 'scripts/a.py', bytes: strToU8('print(1)') },
+  ]
+  const stamps = zipDosStamps(packZip(files))
+
+  assert.equal(stamps.length, 2, '应当能抓到两个本地文件头')
+  // 1980-01-01 00:00:00 的 DOS 表示：date = ((1980-1980)<<9)|(1<<5)|1 = 0x21，time = 0
+  assert.deepEqual(
+    stamps,
+    [[0, 0x21], [0, 0x21]],
+    'zip 头里的修改时间不是固定常量 —— fflate 会退化成 Date.now()，' +
+      '于是同样内容每次打包字节都不同，内容去重（靠 hash 相等）直接失效。\n' +
+      '修法：packZip 里给每个条目传 { mtime: <常量> }。\n' +
+      `实际抓到：${JSON.stringify(stamps)}`,
+  )
+})
+
+test('★ 把系统时钟拧到相差 6 年，packZip 的字节也必须一模一样', () => {
+  const files = [{ path: 'SKILL.md', bytes: strToU8(MD) }]
+  const realNow = Date.now
+  let a
+  let b
+  try {
+    Date.now = () => new Date('2020-01-01T00:00:00Z').getTime()
+    a = packZip(files)
+    Date.now = () => new Date('2026-10-10T00:00:00Z').getTime()
+    b = packZip(files)
+  } finally {
+    Date.now = realNow
+  }
+  assert.deepEqual(
+    [...a],
+    [...b],
+    'packZip 的输出跟着系统时钟变了 —— 说明有条目的 mtime 没被固定住',
+  )
 })
 
 test('parseSkill：内容不同 → hash 不同（否则去重会把两个技能合成一个）', async () => {

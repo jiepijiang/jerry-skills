@@ -22,6 +22,18 @@ declare
 
   v_salt text;
 begin
+  -- 先确认 002 已经跑过。
+  -- 不做这个前置检查的话，下面那条 insert 会直接抛
+  --   `42P01: relation "public.skill_admin_config" does not exist`
+  -- —— 技术上没错，但对「我照着文档一步步来的，怎么就错了」的人毫无帮助：
+  -- 它说的是「表不存在」，而人需要知道的是「我少跑了哪一步」。
+  -- to_regclass 查不存在的对象返回 null 而不是报错，正好用来做前置判断。
+  if to_regclass('public.skill_admin_config') is null then
+    raise exception
+      '找不到 public.skill_admin_config —— 说明 migrations/002-admin-delete.sql 还没跑。'
+      '请先把那份整段粘进 SQL Editor 跑一遍（期望 token_set = 0），再回来跑这个。';
+  end if;
+
   -- ⚠️ 下面那个比较里，占位符那串中文被**拆成两段拼起来** —— 这不是笔误，是故意的。
   --    如果写成一整串，这一行自己就含有占位符；而改口令的常见做法是
   --    「全局替换」（sed、编辑器的全选替换），那会把这一行也一起换掉，

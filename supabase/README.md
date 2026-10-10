@@ -62,6 +62,19 @@ node -e "console.log(require('crypto').randomBytes(18).toString('base64url'))"
 > 而且完全看不出为什么。现在守卫里的占位符是**拆成两段拼起来**比较的，
 > 全局替换碰不到它。`verify-admin-delete.mjs` 里有一条专门钉这个行为。
 
+#### 顺序不能反：先 002，再这个
+
+脚本开头会先查一下 `public.skill_admin_config` 在不在。不在就直接报：
+
+```
+找不到 public.skill_admin_config —— 说明 migrations/002-admin-delete.sql 还没跑。
+请先把那份整段粘进 SQL Editor 跑一遍（期望 token_set = 0），再回来跑这个。
+```
+
+> 不加这道前置检查的话，报的是 `42P01: relation "public.skill_admin_config"
+> does not exist` —— 技术上没错，但说的是「表不存在」，而人需要知道的是
+> 「**我少跑了哪一步**」。这两句话的差距就是「能自己修好」和「来问一下」的差距。
+
 ### 界面上怎么用
 
 页脚最右边有个小字「管理」→ 输入口令 → 解锁后**列表卡片和详情页上都会出现删除按钮**。
@@ -181,7 +194,7 @@ select (jsonb_populate_record(null::public.skills, payload)).*
 | 绕过 RPC 写表 | anon 直接 `insert` → 被 RLS 挡下 |
 | 5 个 RPC 全通 | **以 anon 身份**调，含校验失败 / hash 去重 / slug 后缀 / 限流 20 |
 
-### 002 的管理删除：`verify-admin-delete.mjs`（65 项）
+### 002 的管理删除：`verify-admin-delete.mjs`（67 项）
 
 这份 SQL 里一半是安全逻辑，所以单独写了一份更狠的：
 

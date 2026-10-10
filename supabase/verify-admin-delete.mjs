@@ -363,6 +363,25 @@ check('★ 用「全局替换」改口令也能跑通（守卫不会把自己也
 const c9 = await adminCheck(PASS)
 check('  全局替换设的口令生效', c9.ok === true, JSON.stringify(c9))
 
+/* ══════════════ 5.5 「少跑了 002」时的提示 ══════════════ */
+
+section('没跑 002 就跑 set-admin-token.sql')
+
+// 干净的实例：**只跑 001**，故意不跑 002 —— 复现「照着文档跳步」的真实场景
+const db2 = new PGlite()
+await db2.exec(`create role anon; create role authenticated;`)
+await db2.exec(M1)
+let msg2 = ''
+try {
+  await db2.exec(SETUP.replaceAll(`把这里换成你自己的口令`, PASS))
+} catch (e) {
+  msg2 = String(e?.message || e)
+}
+check('★ 给出「你少跑了哪一步」的提示，而不是裸的 42P01',
+  /002-admin-delete\.sql/.test(msg2) && !/42P01/.test(msg2), msg2.split('\n')[0].slice(0, 90))
+check('  提示里点名了要跑的期望结果（token_set = 0）', /token_set/.test(msg2))
+await db2.close()
+
 /* ══════════════ 6. 删除 ══════════════ */
 
 section('删除')

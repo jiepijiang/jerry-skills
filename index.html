@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="Dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>Skill Hub · Jerry 的技能分享站</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta
+      name="description"
+      content="AI Agent Skill 分享站 —— 上传、解析、一键安装到 Claude Code / Cursor / Codex / WorkBuddy 等 AI 助手"
+    />
+    <meta
+      name="keywords"
+      content="AI Agent Skill,Claude Code Skill,Cursor,Codex,WorkBuddy,技能分享,SKILL.md"
+    />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <!-- 背景图是 body 的 background，提前拉一下省得首屏闪一下空白 -->
+    <link rel="preload" href="/static/img/background.jpg" as="image" type="image/jpeg" />
+    <link rel="preload" href="/static/fonts/Ubuntu-Regular.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/static/fonts/Pacifico-Regular.ttf" as="font" type="font/ttf" crossorigin />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        min-height: 100vh;
+        width: 100%;
+        position: relative;
+        transition: color 0.1s ease;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

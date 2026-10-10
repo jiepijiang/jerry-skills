@@ -1,0 +1,38 @@
+/* =========================================================================
+   主题变量
+   -------------------------------------------------------------------------
+   直接沿用主站（jerry-site）生效的那一套值 —— 深色毛玻璃。
+   主站 root.css 把 5 套主题全塞进同一个 html{} 规则里、后者覆盖前者，
+   最终生效的就是下面这些；这里不再保留那 4 套死代码。
+
+   ⚠️ 换主题不要改这里的变量名 —— 组件全部按这套名字取值。
+   ========================================================================= */
+
+html {
+  /* —— 生效值（与主站一致：深色毛玻璃）—— */
+  --main_bg_color: url(/static/img/background.jpg);
+  --main_text_color: #eee;
+  --gradient: linear-gradient(120deg, #bd34fe, #e0321b 30%, #41d1ff 60%);
+  --purple_text_color: #747bff;
+  --text_bg_color: #00000040;
+  --item_bg_color: #00000038;
+  --item_hover_color: #33333338;
+  --item_left_title_color: #fff;
+  --item_left_text_color: #fff;
+  --footer_text_color: #fff;
+  --left_tag_item: rgba(27, 42, 57, 0.2);
+  --card_filter: 0px;
+  --back_filter: 19px;
+  --back_filter_color: #00000030;
+  --fill: #fff;
+
+  /* —— 本站新增（主站没有，但同一套配色语言）—— */
+  --hub_line: #ffffff1f;          /* 分隔线 / 描边 */
+  --hub_line_strong: #ffffff33;
+  --hub_muted: #ffffffa6;         /* 次要文字（原站用 opacity 实现，这里给个显式变量） */
+  --hub_code_bg: #00000059;       /* 代码块底色，比卡片再深一档 */
+  --hub_accent: #bd34fe;          /* 站点主色，取自 --gradient 首段 */
+  --hub_ok: #3ddc97;
+  --hub_warn: #ffb020;
+  --hub_err: #ff6b6b;
+}

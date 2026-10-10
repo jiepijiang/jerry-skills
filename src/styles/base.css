@@ -1,0 +1,118 @@
+/* =========================================================================
+   全局基础样式（与主站 base.css 同源）
+   ========================================================================= */
+
+@font-face {
+  font-display: swap;
+  font-family: b;
+  src: url(/static/fonts/Ubuntu-Regular.ttf);
+}
+
+@font-face {
+  font-display: swap;
+  font-family: title;
+  src: url(/static/fonts/Pacifico-Regular.ttf);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  transition: background-color 0.2s ease;
+}
+
+/*
+ * ⚠️ 主站这里写了 `user-select: none`（原站全站禁选），本站**不能照抄** ——
+ * 这是一个「要复制安装命令、要选中代码看」的工具站，禁选会让核心功能残废。
+ * 所以只在装饰性元素上禁选（见 hub.css 的 .no-select），正文一律可选。
+ */
+a:active,
+a:focus,
+a:hover,
+a:link,
+a:visited {
+  border: none;
+  color: inherit;
+  outline: none;
+  text-decoration: none;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+}
+
+::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--hub_line_strong);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+body {
+  background: var(--main_bg_color);
+  background-attachment: fixed;
+  background-position: 50%;
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: var(--main_text_color);
+  font-family: b, sans-serif;
+  min-height: 100vh;
+  min-height: 100dvh;
+  position: relative;
+  transition: color 0.1s ease;
+  width: 100%;
+}
+
+@keyframes fadeIn {
+  0% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes backgroundSizeAnimation {
+  0% {
+    background-position: 100%;
+  }
+  25% {
+    background-position: 50%;
+  }
+  50% {
+    background-position: 0;
+  }
+  75% {
+    background-position: 50%;
+  }
+  to {
+    background-position: 100%;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 无障碍：只给屏幕阅读器的文本 */
+.sr-only {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.no-select {
+  user-select: none;
+}

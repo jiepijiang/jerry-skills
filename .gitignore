@@ -1,0 +1,31 @@
+# 依赖与构建产物
+node_modules
+dist
+dist-ssr
+.vite
+
+# 本地环境
+*.local
+.env
+.env.*
+!.env.example
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# 日志
+npm-debug.log*
+yarn-error.log*
+pnpm-error.log*
+
+# 构建期生成的安装脚本（由 scripts/gen-install-sh.mjs 从环境变量注入端点）
+# 之所以不进仓库：它内联了 Supabase 端点，属于「每个部署环境一份」的产物，
+# 和 dist/ 是同一性质。CI 里在 npm run build 前生成。
+public/install.sh
+
+# 本机 AI 工作区（项目记忆等本地状态，不随仓库分发）
+.workbuddy-ai

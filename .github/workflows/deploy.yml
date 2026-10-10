@@ -1,0 +1,98 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  # ⚠️ 这个 permissions 是**白名单**：没列出来的一律是 none。
+  #    actions/deploy-pages 要求 actions: read（它要按 artifact id 取产物）。
+  actions: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: 单元测试（解析层）
+        # 解析层是这个站最容易出错、也最难靠肉眼发现问题的部分
+        # （frontmatter 五花八门、zip 里有各种垃圾条目）。
+        # 放在 npm ci 之后 —— 它依赖 fflate。
+        run: npm test
+
+      - name: 核对 Supabase 配置
+        # 未配置时线上会**静默退回本地演示模式**（页面照开，只是上传不落库、
+        # 下载量不累计）—— 这种「看起来正常」的故障最难发现，所以让它在日志里响。
+        # 脚本内部按严重程度分档：warning 只提醒，error 会让构建红。
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: npm run check:env
+
+      - name: Build
+        # Vite 的 import.meta.env.VITE_* 是**构建期静态替换**，运行时读不到环境变量。
+        # 用 vars（仓库变量）而不是 secrets：anon key 本来就要发给浏览器，
+        # 放 Variables 更好排查。真正的秘密是 service_role，那个绝不能进这个工作流。
+        #
+        # prebuild 钩子会跑 gen-install-sh.mjs，把同一组值注入 public/install.sh。
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_SITE_URL: https://jiepijiang.github.io/jerry-skills
+        run: npm run build
+
+      - name: 核对产物
+        # 「变量注入了吗」和「产物里对不对」是两个命题，分开验。
+        # 前一步的 check:env 验的是变量本身，这里验的是它真的进了 bundle。
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+        run: |
+          set -e
+          if [ -n "$VITE_SUPABASE_URL" ]; then
+            # 别拿域名当判据 —— 域名在别处也可能出现，要查完整 URL。
+            grep -rqF "$VITE_SUPABASE_URL" dist/assets/ \
+              || { echo "::error title=注入失败::dist/assets 里找不到 Supabase URL"; exit 1; }
+            grep -qF "$VITE_SUPABASE_URL" dist/install.sh \
+              || { echo "::error title=注入失败::dist/install.sh 里找不到 Supabase URL"; exit 1; }
+            echo "✅ 产物里已包含 Supabase URL（bundle + install.sh）"
+          else
+            echo "::warning title=未注入 Supabase::线上会退回本地演示模式。"
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

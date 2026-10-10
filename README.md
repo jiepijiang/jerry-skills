@@ -144,7 +144,7 @@ supabase/
 ## 验证
 
 ```bash
-npm test          # 解析层 26 条断言
+npm test          # 55 条断言：解析层 26 · 时间 13 · 卡片渲染 7 · install.sh 9
 npm run build     # 构建（会先跑 gen-install-sh）
 npm run check:env # 后端连通性（未配则只警告）
 ```
@@ -155,6 +155,10 @@ npm run check:env # 后端连通性（未配则只警告）
 | --- | --- | --- |
 | 把 `tags` 的 undefined 守卫改回裸 `.slice` | 1 条 | ✅ 1 条（`parseSkill：缺 SKILL.md`） |
 | 把路径排序改回 `localeCompare` | 2 条 | ✅ 2 条（`readZip` / `parseSkill：完整走通`） |
+| 删掉卡片上的时间元素 | 3 条 | ✅ 3 条（渲染 / title / 与共享模块一致） |
+| `parseTime` 改回朴素的 `new Date(iso)` | 5 条 | ✅ 5 条（含「不能是 56 年前」） |
+| 详情页又自己写一份 `relativeTime` | 1 条 | ✅ 1 条（防漂移守卫） |
+| 去掉 `site.js` 的 `typeof window` 守卫 | 7 条 | ✅ 7 条（整个渲染测试文件加载失败） |
 
 后端迁移另有一层离线验证（PGlite 真跑 SQL），见 `supabase/README.md`：
 
@@ -189,6 +193,28 @@ npm run check:env # 后端连通性（未配则只警告）
 2. 路径排序用了 `localeCompare`，**受运行环境 locale 影响**。而文件顺序决定
    `packZip` 的字节序 → 决定内容 hash。不同地区的人上传同一份技能会算出两个 hash，
    **去重直接失效**。改成码位比较后与环境无关。
+
+---
+
+## 时间显示：为什么只有「上传时间」，没有「更新时间」
+
+列表卡片和详情页显示的时间都是 **`created_at`（上传时间）**，悬浮可看绝对时间。
+不显示 `updated_at` 不是偷懒，是**这个站现在根本没有「更新」这件事**：
+
+| 情况 | `publish_skill` 的行为 |
+| --- | --- |
+| 内容 hash 已存在 | 直接返回 `exists`，**不写库** |
+| slug 撞了但内容不同 | 换一个带后缀的新 slug（`xxx-2`），**插一行新的** |
+
+也就是说它从不 `update` 已有行。加一列 `updated_at` 只会得到
+**永远等于 `created_at` 的假信息** —— 看起来有信息量，实际是误导。
+
+要真做「更新」得先改 `publish_skill` 的语义（同 slug 覆盖？保留历史版本？
+下载量怎么继承？），那是产品决策，不是加一列的事。
+
+时间格式集中在 `src/lib/time.js`（卡片与详情页共用一份，避免两处算法漂移）。
+里面有个容易踩的坑，注释写明了：`new Date(null)` 得到的是 **1970-01-01 这个有限值**，
+不是 `Invalid Date` —— 不先挡空值，页面上会理直气壮地显示「56 年前」。
 
 ---
 

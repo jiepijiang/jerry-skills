@@ -12,10 +12,19 @@
  */
 export const asset = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`
 
-/** 站点公开地址：优先用构建期注入的值，否则按当前 origin 现算（本地开发用） */
+/**
+ * 站点公开地址：优先用构建期注入的值，否则按当前 origin 现算（本地开发用）。
+ *
+ * ⚠️ `typeof window` 这个判断不能省。这是模块顶层求值，而 Node 里没有 window ——
+ *    一旦裸引用，**任何** import 到本模块的东西（组件、lib）都没法在 Node 里加载，
+ *    于是「用 SSR 把卡片渲染出来断言」这类测试直接写不了。
+ *    浏览器里 window 必然存在，加判断对线上行为零影响。
+ */
 export const SITE_URL =
   (import.meta.env.VITE_SITE_URL || '').trim().replace(/\/$/, '') ||
-  `${window.location.origin}${import.meta.env.BASE_URL}`.replace(/\/$/, '')
+  (typeof window === 'undefined'
+    ? ''
+    : `${window.location.origin}${import.meta.env.BASE_URL}`.replace(/\/$/, ''))
 
 export const brand = {
   name: 'Skill Hub',

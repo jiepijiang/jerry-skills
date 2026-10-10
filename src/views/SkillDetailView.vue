@@ -6,6 +6,7 @@ import FileTree from '@/components/FileTree.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { agents, DEFAULT_AGENT, categoryLabel, categoryIcon, SITE_URL } from '@/data/site'
 import { buildTree, formatBytes } from '@/lib/parseSkill'
+import { absoluteTime, relativeTime } from '@/lib/time'
 import { agentPrompt, cliCommand } from '@/lib/install'
 import { downloadSkill, errorText, getSkill, registerInstall, saveBlob } from '@/lib/skills-api'
 import { useCopy } from '@/composables/useCopy'
@@ -31,18 +32,13 @@ const cliText = computed(() => (skill.value ? cliCommand(skill.value.slug, agent
 const promptText = computed(() => (skill.value ? agentPrompt(skill.value, agent.value) : ''))
 const targetDir = computed(() => agents.find((a) => a.key === agent.value)?.dir || '')
 
-function relativeTime(iso) {
-  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
-  if (!Number.isFinite(min)) return ''
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `${h} 小时前`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `${d} 天前`
-  const mo = Math.floor(d / 30)
-  return mo < 12 ? `${mo} 个月前` : `${Math.floor(mo / 12)} 年前`
-}
+/**
+ * 上传时间。解析不了时 `uploaded` 是空串 —— 用它当 v-if 的条件，
+ * 而不是 `v-if="skill.created_at"`：后者在时间戳格式不对时会渲染出
+ * 「上传于 」这种半截文案（`created_at` 有值但 Date 解析失败）。
+ */
+const uploaded = computed(() => relativeTime(skill.value?.created_at))
+const uploadedAbs = computed(() => absoluteTime(skill.value?.created_at))
 
 async function load(slug) {
   loading.value = true
@@ -152,7 +148,9 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
             <span class="meta"><AppIcon name="box" :size="14" />{{ formatBytes(skill.total_bytes) }}</span>
             <span class="meta muted">
               by {{ skill.author }}<template v-if="skill.license"> · {{ skill.license }}</template>
-              <template v-if="skill.created_at"> · {{ relativeTime(skill.created_at) }}</template>
+              <template v-if="uploaded">
+                · <span :title="`上传于 ${uploadedAbs}`">上传于 {{ uploaded }}</span>
+              </template>
             </span>
           </div>
 

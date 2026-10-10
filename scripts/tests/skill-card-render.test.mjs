@@ -120,6 +120,61 @@ test('加时间没有挤掉原有的下载量 / 安装量 / 作者', async () =>
   assert.ok(html.includes('v1.2.0'), '版本号还在')
 })
 
+/* ------------------------------------------------- 计量口径必须说清楚 */
+
+test('卡片上「安装量」的 tooltip 说明了口径 —— 数的是复制次数，不是真的装了', async () => {
+  // 「安装量」实际统计的是「复制过安装命令 / 提示词的次数」。
+  // 这个口径是产品上确认过的，但**数字必须自己解释自己** ——
+  // 光写一个「安装量」标签，用户会以为是「真的装到 N 台机器上」。
+  const html = await renderCard(skillAgedDays(3))
+  const titles = [...html.matchAll(/\stitle="([^"]*)"/g)].map((m) => m[1])
+  const installTitle = titles.find((t) => t.includes('安装量'))
+
+  assert.ok(installTitle, `卡片上应该有解释安装量口径的 tooltip，实际 title：${JSON.stringify(titles)}`)
+  assert.notEqual(installTitle, '安装量', '不能只是一个光秃秃的标签')
+  assert.match(installTitle, /复制/, `tooltip 必须说明它数的是复制次数，实际：${installTitle}`)
+})
+
+test('下载量的 tooltip 同样有口径说明（两个数字待遇一致）', async () => {
+  const html = await renderCard(skillAgedDays(3))
+  const titles = [...html.matchAll(/\stitle="([^"]*)"/g)].map((m) => m[1])
+  const dl = titles.find((t) => t.includes('下载量'))
+  assert.ok(dl, `应该有下载量口径说明，实际：${JSON.stringify(titles)}`)
+  assert.notEqual(dl, '下载量', '不能只是一个光秃秃的标签')
+})
+
+test('卡片与详情页共用同一份口径文案，不各写一份', () => {
+  const card = readFileSync(`${ROOT}src/components/SkillCard.vue`, 'utf8')
+  const detail = readFileSync(`${ROOT}src/views/SkillDetailView.vue`, 'utf8')
+  for (const [name, src] of Object.entries({ SkillCard: card, SkillDetailView: detail })) {
+    assert.ok(src.includes('metricNotes'), `${name} 应该从 @/data/site 取 metricNotes`)
+    assert.ok(
+      !/title="安装量"/.test(src),
+      `${name} 里不该再有光秃秃的 title="安装量" —— 口径文案要统一走 metricNotes`,
+    )
+  }
+})
+
+test('详情页安装区里解释了「安装量」的口径', () => {
+  // 详情页没有 SSR 渲染测试（要 mock 路由 + 异步取数，不划算），所以退一步做源码检查。
+  // 抓的是「把那段解释删掉」这种回归 —— 用户点复制之前就该知道这个数字会怎么变。
+  const src = readFileSync(`${ROOT}src/views/SkillDetailView.vue`, 'utf8')
+  const block = /安装 -->([\s\S]*?)<div class="tabs">/.exec(src)
+  assert.ok(block, '没找到安装区块')
+
+  // ⚠️ 必须先剥掉注释再断言。这段代码附近就有解释「为什么不能直接摊在 flex 里」的注释，
+  //    里面恰好写着「复制次数」—— 不剥的话，注释本身就能让下面的 /复制/ 永远为真，
+  //    于是「把解释删掉」这种回归**照样绿**。
+  //    （同类坑在 SSR 渲染测试里也踩过一次：模板注释会被渲染进 HTML。）
+  const code = block[1].replace(/<!--[\s\S]*?-->/g, '')
+
+  assert.ok(
+    code.includes('metricNotes.installs'),
+    '安装区应该引用 metricNotes.installs 而不是自己写一段口径说明',
+  )
+  assert.match(code, /复制次数/, '安装区必须说清楚这个数字数的是复制次数')
+})
+
 /* --------------------------------------------------- 防止两处各写一份 */
 
 test('卡片与详情页都从 @/lib/time 取时间函数，不各写一份', () => {

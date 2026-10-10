@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
-import { categoryIcon, categoryLabel } from '@/data/site'
+import { categoryIcon, categoryLabel, metricNotes } from '@/data/site'
 import { absoluteTime, relativeTime } from '@/lib/time'
 
 /**
@@ -50,10 +50,10 @@ function fmt(n) {
     </div>
 
     <div class="sc-foot">
-      <span class="sc-stat" title="下载量">
+      <span class="sc-stat" :title="metricNotes.downloads">
         <AppIcon name="download" :size="13" />{{ fmt(skill.downloads) }}
       </span>
-      <span class="sc-stat" title="安装量">
+      <span class="sc-stat" :title="metricNotes.installs">
         <AppIcon name="terminal" :size="13" />{{ fmt(skill.installs) }}
       </span>
 

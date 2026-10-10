@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import FileTree from '@/components/FileTree.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import { agents, DEFAULT_AGENT, categoryLabel, categoryIcon, SITE_URL } from '@/data/site'
+import { agents, DEFAULT_AGENT, categoryLabel, categoryIcon, metricNotes, SITE_URL } from '@/data/site'
 import { buildTree, formatBytes } from '@/lib/parseSkill'
 import { absoluteTime, relativeTime } from '@/lib/time'
 import { agentPrompt, cliCommand } from '@/lib/install'
@@ -142,8 +142,12 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
 
         <div class="head-foot">
           <div class="metas">
-            <span class="meta"><AppIcon name="download" :size="14" />{{ skill.downloads }} 次下载</span>
-            <span class="meta"><AppIcon name="terminal" :size="14" />{{ skill.installs }} 次安装</span>
+            <span class="meta" :title="metricNotes.downloads">
+              <AppIcon name="download" :size="14" />{{ skill.downloads }} 次下载
+            </span>
+            <span class="meta" :title="metricNotes.installs">
+              <AppIcon name="terminal" :size="14" />{{ skill.installs }} 次安装
+            </span>
             <span class="meta"><AppIcon name="file" :size="14" />{{ skill.file_count }} 个文件</span>
             <span class="meta"><AppIcon name="box" :size="14" />{{ formatBytes(skill.total_bytes) }}</span>
             <span class="meta muted">
@@ -165,7 +169,25 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
 
       <!-- ------------------------------------------------ 安装 -->
       <section class="card block install">
-        <h2 class="block-title"><AppIcon name="terminal" :size="18" />安装</h2>
+        <h2 class="block-title">
+          <AppIcon name="terminal" :size="18" />安装
+          <span class="block-sub">复制即计入「安装量」</span>
+        </h2>
+
+        <!--
+          ⚠️ 正文必须整段包在一个 <span> 里，不能直接摊在 .metric-note 下面。
+             这个 p 是 display:flex，直接放文本 + <b> 的话，文本节点和 <b> 会各自变成
+             独立的 flex item、各自换行 —— 表现是「复制次数」被拆成「复制次」/「数」两行，
+             中间还夹一个孤零零的「是」。
+        -->
+        <p class="block-hint metric-note" :title="metricNotes.installs">
+          <AppIcon name="info" :size="13" />
+          <span>
+            本站的「安装量」数的是<b>复制次数</b>，不是真的装了多少台机器 ——
+            纯静态站点拿不到「命令被粘贴执行了」的信号。这是刻意的取舍：宁可标一个诚实的近似值，
+            也不编一个看着精确的假数字。
+          </span>
+        </p>
 
         <div class="tabs">
           <button class="tab" :class="{ active: tab === 'cli' }" @click="tab = 'cli'">
@@ -429,6 +451,26 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
 }
 
 /* ---------------------------------------------------------------- 安装 */
+/* 计量口径说明。比普通 block-hint 弱一档 —— 它是「解释」，不该跟操作说明抢注意力 */
+.metric-note {
+  align-items: flex-start;
+  display: flex;
+  font-size: 12.5px;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.metric-note svg {
+  fill: var(--hub_muted);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.metric-note b {
+  color: var(--main_text_color);
+  font-weight: 600;
+}
+
 .tabs {
   align-items: center;
   display: flex;

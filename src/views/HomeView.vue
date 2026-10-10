@@ -136,6 +136,7 @@ onMounted(() => load())
             :key="s.key"
             class="chip"
             :class="{ active: sort === s.key }"
+            :title="s.hint"
             @click="sort = s.key"
           >
             {{ s.label }}

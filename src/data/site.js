@@ -85,10 +85,27 @@ export function categoryIcon(key) {
  * 排序方式。`key` 直接映射到 SQL 里的 order by 分支（见迁移 SQL 的 list_skills）。
  */
 export const sorts = [
-  { key: 'new', label: '最新' },
-  { key: 'downloads', label: '最多下载' },
-  { key: 'installs', label: '最多安装' },
+  { key: 'new', label: '最新', hint: '按上传时间' },
+  { key: 'downloads', label: '最多下载', hint: '按「下载 .zip」被点过的次数' },
+  { key: 'installs', label: '最多安装', hint: '按「复制安装命令 / AI 提示词」的次数' },
 ]
+
+/**
+ * 计量口径说明。
+ *
+ * 「安装量」统计的是**复制安装命令 / 提示词的次数**，不是「真的装到本机了」的次数 ——
+ * 本站是纯静态托管（GitHub Pages），没有任何服务端能知道命令有没有被粘贴执行。
+ *
+ * 口径是产品上明确确认过的（2026-10-10）：宁可标一个**诚实的近似值**，
+ * 也不编一个看着精确的假数字。所以数字保留「安装量」这个用户关心的叫法，
+ * 但每一处显示都必须能解释清楚它到底数的是什么。
+ */
+export const metricNotes = {
+  downloads: '下载量：点过「下载 .zip」的次数。',
+  installs:
+    '安装量：复制过安装命令 / AI 提示词的次数。本站是纯静态站点，' +
+    '拿不到「真的装到本机了」的信号 —— 这是最接近的近似值，不是精确的安装数。',
+}
 
 /**
  * 安装目标：各 AI 助手的 skills 目录。

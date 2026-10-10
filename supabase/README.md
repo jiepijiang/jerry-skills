@@ -23,6 +23,28 @@ Supabase Dashboard 的 **SQL Editor** 里跑：
 
 > ⚠️ 这份 SQL 是幂等的，重复跑不会出错，也不会清数据。
 
+## 清空全部技能数据（需要时）
+
+`reset-skills.sql`。同样是 SQL Editor 里整段粘贴 → Run。
+
+删两样东西：
+
+| 表 | 删什么 | 为什么 |
+| --- | --- | --- |
+| `public.skills` | **全部行** | 技能本体，下载量 / 安装量计数也在这行里 |
+| `public.skill_upload_log` | **全部行** | 上传限流计数（20 次/小时/IP）。不清的话，刚重置完可能正好被自己的测试顶到上限 |
+
+想保留限流状态 → 把 `delete from public.skill_upload_log;` 那行注释掉。
+只想删一部分 → 文件末尾有 `where slug like 'e2e-smoke-test%'` 之类的示例。
+
+**为什么不能做成按钮 / RPC**：迁移里对这两张表 `revoke all` + RLS 零策略，
+而且**刻意不提供 delete 类 RPC** —— 否则任何人都能一键清空整站。
+所以只能用有权限的账号（SQL Editor / service_role）来跑。
+
+离线验证：`verify-reset-sql.mjs`（PGlite 真跑，9/9）。除了验「清空生效」，
+还验了「清完表还能用」「表结构 / 函数没被破坏」，并做了两个造红：
+只清 skills 不清日志（→ 日志那条断言红）、表名写错（→ 直接抛错，不是静默通过）。
+
 ## 会不会影响主站 / jerry-tools 的表？
 
 **不会。** 已经静态 + 动态两边都验过：

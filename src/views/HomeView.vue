@@ -58,6 +58,24 @@ async function load({ append = false } = {}) {
 const hasMore = computed(() => items.value.length < total.value)
 const isFiltering = computed(() => category.value !== 'all' || query.value.trim() !== '')
 
+/**
+ * 「浏览全部」滚到筛选栏。
+ *
+ * 原来是 `<a href="#browse">` 的原生锚点跳转 —— 瞬移，很生硬。改成平滑滚动。
+ *
+ * 为什么不用全局的 `html { scroll-behavior: smooth }`：
+ * 路由的 scrollBehavior 返回的是 `{ top: 0 }`，vue-router 只在**没指定 behavior** 时
+ * 交给浏览器决定，于是全局平滑会把「切换页面回到顶部」也一起变慢，反而更卡。
+ * 所以只在这一个入口显式平滑，别动全局。
+ */
+function scrollToBrowse() {
+  const el = document.getElementById('browse')
+  if (!el) return
+  // 尊重系统的「减弱动效」设置 —— 前庭功能敏感的用户会被平滑滚动晃到
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+}
+
 watch([category, sort], () => load())
 
 watch(query, () => {
@@ -85,7 +103,7 @@ onMounted(() => load())
           <AppIcon name="upload" :size="16" fill="#fff" />
           上传技能
         </router-link>
-        <a class="btn" href="#browse">
+        <a class="btn" href="#browse" @click.prevent="scrollToBrowse">
           <AppIcon name="search" :size="16" />
           浏览全部
         </a>
@@ -220,6 +238,8 @@ onMounted(() => load())
   gap: 12px;
   margin-top: 26px;
   padding-bottom: 18px;
+  /* 「浏览全部」滚过来时给 sticky 顶栏（62px）让位，否则标题会被压在导航底下 */
+  scroll-margin-top: 76px;
 }
 
 .filter-row {

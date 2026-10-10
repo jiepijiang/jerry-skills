@@ -3,6 +3,9 @@
  * ---------------------------------------------------------------------------
  * 页面里所有文案、分类、安装目标目录都在这里改，组件本身不需要动。
  */
+import { CATEGORY_KEYS } from '@/lib/category'
+
+export { CATEGORY_KEYS }
 
 /**
  * 静态资源路径前缀。
@@ -36,23 +39,38 @@ export const brand = {
 }
 
 /**
- * 技能分类。
- * key 会作为 `category` 存库（英文，稳定）；label 只用于展示。
- * `all` 是筛选用的伪分类，不会入库。
+ * 技能分类的**展示信息**（label / icon）。
+ *
+ * key 清单的真源在 `@/lib/category` —— 那边要用同一份清单做内容推断，
+ * 两处各写一份的话，加一个分类就会「推断能推出来、页面却显示空白」。
+ * 所以这里只负责「长什么样」，不再自己列 key。
+ */
+const CATEGORY_META = {
+  development: { label: '开发', icon: 'code' },
+  design: { label: '设计', icon: 'palette' },
+  document: { label: '文档', icon: 'doc' },
+  data: { label: '数据', icon: 'chart' },
+  writing: { label: '写作', icon: 'pen' },
+  devops: { label: '运维', icon: 'server' },
+  productivity: { label: '效率', icon: 'bolt' },
+  other: { label: '其他', icon: 'box' },
+}
+
+/**
+ * 技能分类。`all` 是筛选用的伪分类，不会入库。
+ * 其余 key 从 @/lib/category 来，label / icon 从上表取。
  */
 export const categories = [
   { key: 'all', label: '全部', icon: 'grid' },
-  { key: 'development', label: '开发', icon: 'code' },
-  { key: 'design', label: '设计', icon: 'palette' },
-  { key: 'document', label: '文档', icon: 'doc' },
-  { key: 'data', label: '数据', icon: 'chart' },
-  { key: 'writing', label: '写作', icon: 'pen' },
-  { key: 'devops', label: '运维', icon: 'server' },
-  { key: 'productivity', label: '效率', icon: 'bolt' },
-  { key: 'other', label: '其他', icon: 'box' },
+  ...CATEGORY_KEYS.map((key) => {
+    const meta = CATEGORY_META[key]
+    // 加了分类却忘了补 label/icon 时，dev 下要吵一声；线上降级成「key + box 图标」而不是渲染空白
+    if (!meta && import.meta.env.DEV) {
+      console.warn(`[site] 分类 "${key}" 在 CATEGORY_META 里没有 label / icon`)
+    }
+    return { key, ...(meta || { label: key, icon: 'box' }) }
+  }),
 ]
-
-export const CATEGORY_KEYS = categories.filter((c) => c.key !== 'all').map((c) => c.key)
 
 export function categoryLabel(key) {
   return categories.find((c) => c.key === key)?.label || '其他'

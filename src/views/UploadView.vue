@@ -4,7 +4,8 @@ import { useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import FileTree from '@/components/FileTree.vue'
 import LocalModeBanner from '@/components/LocalModeBanner.vue'
-import { categories, limits, CATEGORY_KEYS } from '@/data/site'
+import { categories, limits, CATEGORY_KEYS, categoryLabel } from '@/data/site'
+import { CATEGORY_RULE_HINT, resolveCategory } from '@/lib/category'
 import { buildTree, formatBytes, parseSkill } from '@/lib/parseSkill'
 import { errorText, publishSkill } from '@/lib/skills-api'
 import { toast } from '@/composables/useToast'
@@ -35,6 +36,15 @@ const form = ref({
 const text = ref('')
 const fileInput = ref(null)
 
+/**
+ * 分类是怎么定下来的 —— 解析后由 resolveCategory() 写入，模板里显示给用户看。
+ * 分类识别一直是这个站最让人困惑的地方（「为什么我的技能跑到其他里去了」），
+ * 所以不只要猜，还要**把猜的依据摆出来**，并且允许改。
+ */
+const catResolved = ref(null)
+/** 用户是否手动改过分类。改过之后就不再显示推断理由了 */
+const catTouched = ref(false)
+
 const tree = computed(() => (parsed.value ? buildTree(parsed.value.files) : null))
 const categoryOptions = computed(() => categories.filter((c) => CATEGORY_KEYS.includes(c.key)))
 const canSubmit = computed(() => Boolean(parsed.value) && errors.value.length === 0 && !publishing.value)
@@ -44,13 +54,20 @@ function reset() {
   errors.value = []
   warnings.value = []
   fileName.value = ''
+  catResolved.value = null
+  catTouched.value = false
 }
 
 function fillForm(skill) {
+  // 分类：SKILL.md 声明 → 内容推断 → other（规则见 @/lib/category）
+  const cat = resolveCategory(skill)
+  catResolved.value = cat
+  catTouched.value = false
+
   form.value = {
     name: skill.name || '',
     description: skill.description || '',
-    category: CATEGORY_KEYS.includes(skill.category) ? skill.category : 'other',
+    category: cat.key,
     tags: (skill.tags || []).join(', '),
     author: skill.author || '',
     version: skill.version || '1.0.0',
@@ -177,10 +194,17 @@ async function onSubmit() {
     <LocalModeBanner />
 
     <header class="page-head">
+      <router-link to="/" class="back no-select">
+        <AppIcon name="back" :size="16" />
+        返回列表
+      </router-link>
       <h1 class="page-title">上传技能</h1>
       <p class="page-desc">
         支持 <b>.zip</b>（技能文件夹压缩包）或 <b>SKILL.md</b>（单个 Markdown）。
         上传后会在<b>浏览器里就地解析</b>，先给你看一遍元信息和文件结构，确认无误再提交。
+      </p>
+      <p class="page-note">
+        <AppIcon name="info" :size="13" />{{ CATEGORY_RULE_HINT }}
       </p>
     </header>
 
@@ -284,9 +308,34 @@ async function onSubmit() {
 
           <div class="field">
             <label for="f-cat">分类</label>
-            <select id="f-cat" v-model="form.category" class="input select">
+            <select
+              id="f-cat"
+              v-model="form.category"
+              class="input select"
+              @change="catTouched = true"
+            >
               <option v-for="c in categoryOptions" :key="c.key" :value="c.key">{{ c.label }}</option>
             </select>
+            <!-- 把「这个分类是怎么来的」说清楚 —— 之前这里只有一个下拉框，用户完全猜不到规则 -->
+            <span class="hint cat-hint">
+              <template v-if="catTouched">
+                已手动选为「{{ categoryLabel(form.category) }}」。
+              </template>
+              <template v-else-if="catResolved?.source === 'declared'">
+                SKILL.md 里写了 <code>category: {{ catResolved.declared }}</code>，直接采用。
+              </template>
+              <template v-else-if="catResolved?.source === 'inferred'">
+                这个包的 SKILL.md 没写分类，按内容推断为「{{ categoryLabel(catResolved.key) }}」
+                （命中：{{ catResolved.hits.slice(0, 6).join('、') }}）。推断可能不准，可以直接改。
+              </template>
+              <template v-else-if="catResolved?.source === 'invalid'">
+                SKILL.md 里的 <code>category: {{ catResolved.declared }}</code> 不是本站的分类，
+                按内容也认不出，先放在「其他」——请手动选一个。
+              </template>
+              <template v-else>
+                没写分类，按内容也认不出属于哪一类，先放在「其他」——请手动选一个。
+              </template>
+            </span>
           </div>
 
           <div class="field">
@@ -346,6 +395,25 @@ async function onSubmit() {
   padding: 18px 0 20px;
 }
 
+/* 与详情页的 .back 保持同一套写法，两个页面的返回入口看起来才是一家的 */
+.back {
+  align-items: center;
+  color: var(--hub_muted);
+  display: inline-flex;
+  font-size: 13px;
+  gap: 5px;
+  margin-bottom: 16px;
+  transition: color 0.2s ease;
+}
+
+.back:hover {
+  color: var(--main_text_color);
+}
+
+.back svg {
+  fill: currentColor;
+}
+
 .page-title {
   font-size: 34px;
   font-weight: 800;
@@ -361,6 +429,27 @@ async function onSubmit() {
 
 .page-desc b {
   color: var(--main_text_color);
+}
+
+/* 分类规则说明。之前规则只存在于代码里，用户只能靠猜 —— 现在摆在页头上 */
+.page-note {
+  align-items: flex-start;
+  background: var(--hub_code_bg);
+  border: 1px solid var(--hub_line);
+  border-radius: 9px;
+  color: var(--hub_muted);
+  display: flex;
+  font-size: 12.5px;
+  gap: 7px;
+  line-height: 1.65;
+  margin-top: 14px;
+  padding: 10px 12px;
+}
+
+.page-note svg {
+  fill: var(--hub_muted);
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .tabs {
@@ -481,6 +570,20 @@ async function onSubmit() {
 .select option {
   background: #1b1b23;
   color: #eee;
+}
+
+/* 分类来源说明。比普通 hint 多一行，因为要容纳「命中：xxx、yyy」 */
+.cat-hint {
+  line-height: 1.6;
+}
+
+.cat-hint code {
+  background: var(--hub_code_bg);
+  border: 1px solid var(--hub_line);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 4px;
 }
 
 /* -------------------------------------------------------------- 提示 */

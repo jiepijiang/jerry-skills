@@ -345,11 +345,23 @@ check('★ 口令太短 → 脚本拒绝执行（不是默默设成短口令）'
 const placeholder = await tryExec(SETUP)
 check('★ 没改占位符 → 脚本拒绝执行', !placeholder.ok && /改成你自己的口令/.test(placeholder.msg),
   placeholder.ok ? '居然跑过了' : placeholder.msg.slice(0, 60))
+
+// 🔴 这条是**真踩过**才加的：改口令最自然的做法是「全局替换占位符」
+//    （sed / 编辑器全选替换）。如果守卫写成 `if v_pass = '<占位符>'`，
+//    那它自己那一行也含有占位符 → 被一起替换 → 变成「拿口令和口令比」→ 恒真
+//    → 永远报「还没改占位符」，而且完全看不出为什么。
+//    现在守卫里的占位符是拆成两段拼的，全局替换碰不到它。
+const replacedAll = await tryExec(SETUP.replaceAll(`把这里换成你自己的口令`, PASS))
 await db.exec(`set role anon;`)
 
 // 口令还在（上面两次失败不该把配置弄坏）
 const c8 = await adminCheck(PASS)
 check('  两次被拒之后口令依然有效', c8.ok === true, JSON.stringify(c8))
+
+check('★ 用「全局替换」改口令也能跑通（守卫不会把自己也换掉后恒真）',
+  replacedAll.ok, replacedAll.ok ? '' : replacedAll.msg.slice(0, 80))
+const c9 = await adminCheck(PASS)
+check('  全局替换设的口令生效', c9.ok === true, JSON.stringify(c9))
 
 /* ══════════════ 6. 删除 ══════════════ */
 

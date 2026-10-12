@@ -22,9 +22,14 @@ Supabase Dashboard 的 **SQL Editor** 里跑：
    （`policies = 0` 是**故意的** —— 表对所有角色关闭，只走 RPC）
 5. 再把 `migrations/002-admin-delete.sql` **整份**粘进去点 Run
    （站主删除功能。期望自检：`admin_tables = 3, admin_funcs = 2, rls_on = 3, token_set = 0`）
-6. **最后**跑 `set-admin-token.sql` —— 见下面「设置管理口令」
+6. 再把 `migrations/003-ratings.sql` **整份**粘进去点 Run
+   （五星评分。期望自检：`rating_tables = 1, rating_funcs = 1, rls_on = 1, fk_on = 1, policies = 0`）
+7. **最后**跑 `set-admin-token.sql` —— 见下面「设置管理口令」
 
 > ⚠️ 这几份 SQL 都是幂等的，重复跑不会出错，也不会清数据。
+>
+> 003 只依赖 001（评分表外键指向 `public.skills`），和 002 没有先后关系。
+> 但**必须先有 001**，否则 003 建外键时会报 `42P01`。
 
 ## 站主删除功能（002）
 
@@ -138,6 +143,79 @@ select (jsonb_populate_record(null::public.skills, payload)).*
 **没挡住什么**：知道口令的人可以为所欲为 —— 没有审计、没有二次验证、没有撤销。
 一个人用的站，这是刻意的取舍。
 
+## 评分功能（003）
+
+五星评分，1–5 分。**没有账号体系**，所以「一个人」是靠 IP 认的 ——
+`skill_ratings` 的主键是 `(slug, ip)`，写入走 `on conflict … do update`。
+**一人一票，再点一次是改分不是新票。**
+
+### 表长什么样
+
+| 列 | 说明 |
+| --- | --- |
+| `slug` | 外键 → `public.skills(slug)`，**`on delete cascade`** |
+| `ip` | `_client_ip()` 的结果（`x-forwarded-for` 第一段 → `cf-connecting-ip` → `'unknown'`） |
+| `score` | `smallint`，`check (score between 1 and 5)` |
+| `created_at` / `updated_at` | 改分时只动 `updated_at` |
+
+**为什么外键要级联删**：这个站没有「更新」的概念（内容一变就换新 slug），
+而 slug 会被复用（比如 `docx`）。留着的旧评分会被一个毫不相干的新技能继承 ——
+**诚实的清零好过张冠李戴的分数**。
+
+**为什么不额外存一列 `rating_count`**：评分的真源就是这张表本身。
+`downloads` / `installs` 是单调 `+1` 所以能存列；评分不是 ——
+这个站唯一的「更新」路径是站主删除后重传（slug 不变），
+冗余列会被重置成 0，和评分表自相矛盾。代价是排序走不了索引，
+50 个技能一页 24 条，可以忽略。
+
+### RPC
+
+| 函数 | 参数 | 返回 |
+| --- | --- | --- |
+| `rate_skill` | `p_slug text`, `p_score integer` | `{ok, slug, my_score, rating_count, rating_avg}` |
+
+失败一律是 HTTP 200 + `{ok:false, code}`（全站惯例）：
+`invalid_payload`（slug 为空 / 分数不在 1–5）、`not_found`（技能不存在或未发布）。
+
+`get_skill` 和 `list_skills` 也**换了新定义**（签名不变）：
+`get_skill` 多返回 `rating_count` / `rating_avg` / **`my_score`**（当前 IP 自己的分，
+没打过是 `null`）；`list_skills` 多返回 `rating_count` / `rating_avg`，
+并新增一个 `p_sort = 'rating'` 分支。
+
+> `my_score` 由服务端按 IP 反查，**不靠 localStorage** ——
+> 换台设备打开同一个技能，「你打了几分」也是对的。
+
+### 排序为什么用 `left join lateral` 而不是 `group by`
+
+`list_skills` 返回的是一个 `items` 数组。`left join … group by` 会按评分行数
+把每个技能**展开成多行**，数组形状就变了。`left join lateral (select count(*) …)`
+保证一个技能恒一行。
+
+排序分支写的是 `r.avg_score desc nulls last, r.cnt desc, s.created_at desc` ——
+**`nulls last` 不能省**，否则没人评分的技能会窜到第一名（Postgres 的 `desc` 默认
+`nulls first`）。这一条有专门的断言钉住，造红实测过。
+
+### ⚠️ 这一层的安全边界（写清楚，别高估它）
+
+| 做法 | 挡住了什么 |
+| --- | --- |
+| 表对 anon 全关（`revoke` + RLS 零策略） | 读不到别人的评分、也没法绕过 RPC 直接写 |
+| `check (score between 1 and 5)` | 绕过 RPC 塞 `score = 999` 被拒（`23514`） |
+| 外键 | 给不存在的技能评分被拒（`23503`）—— 是**第二道网**，RPC 里那道存在性守卫是第一道 |
+| 主键 `(slug, ip)` | 同一个人反复点只会覆盖自己那一票 |
+
+> 🔴 **「一人一票」是可以被绕过的**：`_client_ip()` 取 `x-forwarded-for` 的**第一段**，
+> 客户端能自己塞这个头（伪造 N 个 IP = N 票）。这一点已经用 PGlite 实测确认。
+> 和 `publish_skill` 的上传限流、管理口令的按 IP 限流是**同一个**问题。
+>
+> 真要修得上账号体系 —— 那和「这是个不用登录的分享站」直接冲突，属于产品决策。
+> 现在的选择是把局限**明写出来**。
+>
+> 另外：取不到任何 IP 头时归到 `'unknown'`，这些访客会**共享同一票**。
+
+**不需要额外的限流表**：一人一票意味着刷票收益为零（同一个人反复点只会改掉自己那一票）。
+所以 003 里**没有**任何 rate-limit 逻辑 —— 这是设计使然，不是漏了。
+
 ## 清空全部技能数据（需要时）
 
 `reset-skills.sql`。同样是 SQL Editor 里整段粘贴 → Run。
@@ -168,9 +246,10 @@ select (jsonb_populate_record(null::public.skills, payload)).*
   jerry-tools 11 张表（`bookmarks` `categories` `discover_sites` `favorites`
   `feedback` `notes` `profiles` `share_settings` `submissions` `user_settings` `visits`）、
   jerry-site 2 张表（`app_config` `guestbook_messages`），
-  与本迁移的 `skills` `skill_upload_log` 无重叠；`_client_ip` 也没被别处用过。
+  与本迁移的 6 张表（`skills` `skill_upload_log` `skill_admin_config`
+  `skill_admin_log` `skills_trash` `skill_ratings`）无重叠；`_client_ip` 也没被别处用过。
   迁移里除了自己的对象，只出现 `alter table` / `revoke` / `grant` / `comment`，
-  作用域全部限定在 `public.skills` 与 `public.skill_upload_log`。
+  作用域全部限定在自己那几张表上。
 - **动态**：`verify-migration.mjs` 在一个共用项目的替身里真跑了整份迁移，
   并对比迁移前后的 **函数定义 / 列定义 / 索引定义快照**，逐字节一致。
   详见下面「离线验证」。
@@ -228,6 +307,35 @@ select (jsonb_populate_record(null::public.skills, payload)).*
 不 revoke / 哈希丢掉盐 / 不 revoke 内部函数 / 限流把成功也计入），
 每一个都如期让**指定的那条**断言变红，还原后回到全绿。
 
+### 003 的评分：`verify-ratings.mjs`（46 项）
+
+同一套方法论（模拟 default privileges、**以 anon 身份**具名调用 RPC），
+跑 001 → 002 → 003 三份，然后逐项验：
+
+| 验什么 | 怎么验 |
+| --- | --- |
+| 幂等 | 整份迁移**重复执行**仍成功，自检恒为 `1/1/1/1/0` |
+| anon 读写被拒 | 直读 / 直写 `skill_ratings` 都是 `permission denied`（`revoke` + RLS 两道锁） |
+| **同 IP 改分** | 打 5 星再打 3 星 → **人数仍是 1**，平均分变成 3 |
+| 异 IP 累加 | 换 IP 再打 → 人数 +1，平均分按预期变化 |
+| 非法分数 | `0` / `6` / `-1` → `invalid_payload`，且**表里不留行** |
+| 技能不存在 / 未发布 | `not_found`，且**不留孤儿行** |
+| 绕过 RPC 直接写 | 撞 `check` → `23514`；给不存在的 slug 写 → 外键 `23503` |
+| `get_skill` 的 `my_score` | 换 IP 之后读到的 `my_score` 跟着变；没打过是 `null` |
+| `list_skills` 字段对齐 | 与 `get_skill` 的 `rating_count` / `rating_avg` 一致 |
+| **排序 `nulls last`** | 有分的排前面，**没人评分的排最后**（不是最前） |
+| 级联删除 | 删掉技能 → 它的评分行**一起消失** |
+
+跑法与 `verify-migration.mjs` 相同（PGlite 不进项目依赖，手动装在隔离工作区）。
+
+> 这份脚本另外做了 3 个造红，都让**指定的那条**变红：
+> ① `on conflict … do update` 改成「冲突时不动」（再打分变空操作）→ 6 条；
+> ② 删掉排序的 `nulls last` → 2 条；③ 去掉存在性守卫 → 外键抛 `23503` → 2 条。
+>
+> ③ 那次把整个脚本**崩掉了**（异常从 `rpc()` 抛出去，吞掉另外 40 项结果）。
+> 于是给 `rpc()` 加了 `try/catch`，把异常转成 `{ok:false, code}` ——
+> **一条断言崩掉不该带走其余 40 条**。修完顺带把「外键是第二道网」固化成常驻断言。
+
 ## 配到前端
 
 `.env.local`（本地）或仓库 Variables（CI）：
@@ -258,11 +366,13 @@ npm run check:env
 | `public.skill_admin_config` 表 | **什么都不能** —— 口令哈希在这里，读不到 |
 | `public.skill_admin_log` 表 | **什么都不能** —— 管理操作审计 + 限流计数 |
 | `public.skills_trash` 表 | **什么都不能** —— 装着已删技能的完整快照（含 zip 包体） |
+| `public.skill_ratings` 表 | **什么都不能** —— 评分明细（含每一条的 IP）。绕过 RPC 写会撞 check / 外键 |
 | `_client_ip()` | 不可执行（内部函数，`revoke ... from public, anon, authenticated`） |
 | `_skill_admin_ok` / `_skill_admin_gate` / `_skill_admin_log` | 不可执行（同上 —— 否则 anon 能把 `_skill_admin_ok` 当**口令预言机**逐个试） |
 | `list_skills` / `get_skill` | 可执行 |
 | `download_skill` | 可执行（顺带 +1 下载量） |
 | `register_install` | 可执行（顺带 +1 安装量） |
+| `rate_skill` | 可执行（一人一票，改分不算新票） |
 | `publish_skill` | 可执行（带体积/格式/频率校验） |
 | `skill_admin_check` / `skill_admin_delete` | 可执行，但**要口令**；失败按 IP + 全站双重重限流 |
 
@@ -281,3 +391,5 @@ npm run check:env
 | `http_400` | 参数类型不对（多半是 `p_limit` 传了字符串） |
 | `rate_limited` | 同 IP 一小时内超过 20 次上传 |
 | `too_large` | 技能包超过 2 MB（解压后） |
+| 点星星没反应 / 卡片上不显示评分 | `003-ratings.sql` 没跑（`rate_skill` 不存在 → 404，且列表里没有 `rating_avg` 字段） |
+| 点「评分最高」排序**什么都没变** | 同上 —— 没跑 003 时 `list_skills` 里没有 `rating` 分支，会**静默落回默认排序**，不报错 |

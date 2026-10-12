@@ -23,10 +23,19 @@ const LS_KEY = 'jerry-skills:local:v1'
  *  种子是每次启动重新解析出来的，不记一笔的话刷新就又冒出来了 —— 「删了又回来」
  *  是最容易让人以为功能坏了的一种表现。 */
 const LS_DELETED = 'jerry-skills:local:deleted:v1'
+/**
+ * 本地模式里我打过的分：{ [slug]: 1..5 }。
+ *
+ * 线上是「一人一票、按 IP 区分」，本地没有 IP 这回事 ——
+ * 于是「一个人」就退化成「这一个浏览器」，也就是这份 map 里的一条记录。
+ * 语义上是对齐的（重复打分是覆盖），所以本地怎么表现，线上就怎么表现。
+ */
+const LS_RATINGS = 'jerry-skills:local:ratings:v1'
 
 let records = null // Map<slug, record>
 let userSlugs = null // Set<slug>：来自 localStorage 或本次会话上传的（要持久化）
 let deletedSeeds = null // Set<slug>
+let myRatings = null // Map<slug, number>：本地这台浏览器打过的分
 let building = null
 let warnedAuth = false
 
@@ -68,6 +77,47 @@ function writeDeleted() {
   }
 }
 
+function readRatings() {
+  try {
+    const raw = localStorage.getItem(LS_RATINGS)
+    const obj = raw ? JSON.parse(raw) : {}
+    const out = new Map()
+    for (const [slug, score] of Object.entries(obj || {})) {
+      const n = Number(score)
+      // 夹一下：localStorage 是用户能直接改的，脏数据不该一路灌进界面
+      if (typeof slug === 'string' && slug && Number.isInteger(n) && n >= 1 && n <= 5) out.set(slug, n)
+    }
+    return out
+  } catch {
+    return new Map()
+  }
+}
+
+function writeRatings() {
+  try {
+    localStorage.setItem(LS_RATINGS, JSON.stringify(Object.fromEntries(myRatings)))
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/**
+ * 一个技能当前的评分聚合。
+ *
+ * 本地模式也要有「别人也评过」的样子，否则「评分最高」排序在本地永远排不出东西
+ * （一台浏览器最多只能贡献一票）。所以种子技能带一份**假的社区票底**
+ * （seed_rating_count / seed_rating_sum），我自己的票再叠加在上面 ——
+ * 和线上「我的票是 N 票之一」的语义一致。
+ *
+ * 用户自己上传的技能没有票底（0 票），这也对：刚传上去就是没人评过。
+ */
+function ratingOf(rec) {
+  const mine = myRatings.get(rec.slug) || 0
+  const cnt = (rec.seed_rating_count || 0) + (mine ? 1 : 0)
+  const sum = (rec.seed_rating_sum || 0) + mine
+  return { cnt, avg: cnt > 0 ? sum / cnt : null }
+}
+
 /** 把「原始文件表」打成 zip，再走一遍真实解析 —— 演示数据与线上同构 */
 async function parseSeed(filesObj) {
   const entries = {}
@@ -84,6 +134,7 @@ export async function ensureLocal() {
     const user = new Set()
     const now = Date.now()
     deletedSeeds = readDeleted()
+    myRatings = readRatings()
 
     let i = 0
     for (const seed of SEED_SKILLS) {
@@ -94,6 +145,10 @@ export async function ensureLocal() {
       //    初始下载量会整体往前挪一格，「最多下载」的排序看着就变了
       const idx = i++
       if (deletedSeeds.has(s.slug)) continue
+      // 评分票底：人数 6~22、平均分 4.1~4.7。理由同下面的 downloads ——
+      // 没有票底的话「评分最高」在本地永远排不出东西（一台浏览器只有一票）。
+      const seedCnt = 6 + ((idx * 5) % 17)
+      const seedAvg = 4.7 - (idx % 4) * 0.2
       map.set(s.slug, {
         slug: s.slug,
         name: s.name,
@@ -112,6 +167,8 @@ export async function ensureLocal() {
         // 种子给一些初始数字，「最多下载 / 最多安装」排序才有东西可排
         downloads: 128 - idx * 19,
         installs: 41 - idx * 7,
+        seed_rating_count: seedCnt,
+        seed_rating_sum: Math.round(seedAvg * seedCnt),
         created_at: new Date(now - (idx + 1) * 3 * 86400000).toISOString(),
       })
     }
@@ -130,6 +187,7 @@ export async function ensureLocal() {
 }
 
 function publicView(rec, withBody = false) {
+  const { cnt, avg } = ratingOf(rec)
   const base = {
     slug: rec.slug,
     name: rec.name,
@@ -143,12 +201,18 @@ function publicView(rec, withBody = false) {
     total_bytes: rec.total_bytes,
     downloads: rec.downloads,
     installs: rec.installs,
+    rating_count: cnt,
+    // 保留两位，和服务端的 round(avg(score), 2) 对齐 —— 两条链路的小数位不一样的话，
+    // 「本地 4.3333333、线上 4.33」会让人以为哪边算错了
+    rating_avg: avg === null ? null : Math.round(avg * 100) / 100,
     created_at: rec.created_at,
   }
   if (withBody) {
     base.readme = rec.readme
     base.files = rec.files
     base.hash = rec.hash
+    // 和线上 get_skill 一致：只有详情接口回传「我自己打的分」
+    base.my_score = myRatings?.get(rec.slug) || null
   }
   return base
 }
@@ -171,6 +235,24 @@ export async function localList({ q = '', category = 'all', sort = 'new', limit 
     new: (a, b) => String(b.created_at).localeCompare(String(a.created_at)),
     downloads: (a, b) => b.downloads - a.downloads,
     installs: (a, b) => b.installs - a.installs,
+    // 和 SQL 的 `r.avg_score desc nulls last, r.cnt desc` 对齐：
+    // 未评分的排最后，同分时人多的在前。
+    //
+    // ⚠️ 那三行显式判 null 对**当前**的排序结果是冗余的 —— 实测过：删掉它们，
+    //    排序断言照样绿。原因是 JS 里 `null` 参与减法被当成 0，而这是个降序比较，
+    //    未评分的（0）自然落到最后。之所以还是写出来：
+    //      ① 意图要能一眼看懂，而不是靠一个隐式转换的巧合；
+    //      ② 真正防的是 `undefined` —— 万一哪天 ratingOf 漏了某个分支返回 undefined，
+    //         `y.avg - x.avg` 会得到 **NaN**，而 sort 的比较器返回 NaN 时顺序是
+    //         **实现定义**的（不报错、只是静默乱掉，最难查）。
+    rating: (a, b) => {
+      const x = ratingOf(a)
+      const y = ratingOf(b)
+      if (x.avg === null && y.avg === null) return 0
+      if (x.avg === null) return 1
+      if (y.avg === null) return -1
+      return y.avg - x.avg || y.cnt - x.cnt
+    },
   }[sort]
   items.sort(cmp || ((a, b) => String(b.created_at).localeCompare(String(a.created_at))))
 
@@ -239,6 +321,34 @@ export async function localInstall(slug) {
   return { installs: rec.installs }
 }
 
+/**
+ * 本地打分 / 改分。
+ *
+ * 和线上对齐的两点：
+ *   · **一人一票**：同一个 slug 只留一条记录，再打是覆盖（线上靠主键 (slug, ip)）。
+ *   · **不存在的技能要抛 not_found**：线上会返回 `{ok:false, code:'not_found'}`，
+ *     而 `rpc()` 会把它转成 SkillError —— 这里必须抛同一种错，
+ *     否则「本地静默成功、线上报错」这种差异会被当成线上有 bug。
+ */
+export async function localRate(slug, score) {
+  const map = await ensureLocal()
+  const rec = map.get(slug)
+  if (!rec) throw new SkillError('not_found')
+
+  const n = Number(score)
+  if (!Number.isInteger(n) || n < 1 || n > 5) throw new SkillError('invalid_payload')
+
+  myRatings.set(slug, n)
+  writeRatings()
+
+  const { cnt, avg } = ratingOf(rec)
+  return {
+    my_score: n,
+    rating_count: cnt,
+    rating_avg: avg === null ? null : Math.round(avg * 100) / 100,
+  }
+}
+
 /* -------------------------------------------------------------- 站主专属 */
 
 /**
@@ -274,6 +384,10 @@ export async function localAdminDelete(slug, token) {
   if (!rec) throw new SkillError('not_found')
 
   map.delete(slug)
+  // 对齐线上的外键级联：技能没了，它身上的评分也该一起走 ——
+  // 留着的话，将来同名技能再传上来会凭空继承一堆别人的分
+  myRatings.delete(slug)
+  writeRatings()
   if (userSlugs.has(slug)) {
     userSlugs.delete(slug)
     writeLS()

@@ -5,6 +5,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import AppDialog from '@/components/AppDialog.vue'
 import FileTree from '@/components/FileTree.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import StarRating from '@/components/StarRating.vue'
 import {
   adminNotes,
   agents,
@@ -14,12 +15,13 @@ import {
   metricNotes,
   oses,
   osByKey,
+  ratings,
   SITE_URL,
 } from '@/data/site'
 import { buildTree, formatBytes } from '@/lib/parseSkill'
 import { absoluteTime, relativeTime } from '@/lib/time'
 import { agentPrompt, cliCommand, detectOS } from '@/lib/install'
-import { downloadSkill, errorText, getSkill, registerInstall, saveBlob } from '@/lib/skills-api'
+import { downloadSkill, errorText, getSkill, rateSkill, registerInstall, saveBlob } from '@/lib/skills-api'
 import { adminToken, isAdmin } from '@/lib/admin'
 import { useSkillDelete } from '@/composables/useAdmin'
 import { useCopy } from '@/composables/useCopy'
@@ -48,6 +50,9 @@ const os = ref(detectOS())
 /* 站主专属：删除 */
 const confirmOpen = ref(false)
 const { busy: deleting, remove } = useSkillDelete()
+
+/* 评分 */
+const ratingBusy = ref(false)
 
 const { done: cmdDone, copy: copyCmd } = useCopy({ silent: true })
 const { done: promptDone, copy: copyPrompt } = useCopy({ silent: true })
@@ -123,6 +128,42 @@ async function onDownload() {
     toast(errorText(e), 'error')
   } finally {
     downloading.value = false
+  }
+}
+
+/**
+ * 打分 / 改分。
+ *
+ * 服务端是「一人一票、再打一次是覆盖」，所以这里不需要「我评过了吗」的分支 ——
+ * 直接打，返回值里带着覆盖之后的平均分和人数，一次往返就够。
+ *
+ * 乐观更新：先把星星点亮，失败了再回滚。不这么做的话，从点击到服务端回来
+ * 之间有一段「点了没反应」的空白 —— 用户会以为没点上，然后去点第二遍。
+ */
+async function onRate(n) {
+  if (!skill.value || ratingBusy.value) return
+
+  const prev = {
+    my: skill.value.my_score,
+    avg: skill.value.rating_avg,
+    cnt: skill.value.rating_count,
+  }
+  skill.value.my_score = n
+  ratingBusy.value = true
+
+  try {
+    const r = await rateSkill(skill.value.slug, n)
+    skill.value.my_score = r.my_score
+    skill.value.rating_avg = r.rating_avg
+    skill.value.rating_count = r.rating_count
+    toast(ratings.thanks(n))
+  } catch (e) {
+    skill.value.my_score = prev.my
+    skill.value.rating_avg = prev.avg
+    skill.value.rating_count = prev.cnt
+    toast(errorText(e), 'error')
+  } finally {
+    ratingBusy.value = false
   }
 }
 
@@ -212,6 +253,47 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
           </div>
         </div>
       </header>
+
+      <!-- ------------------------------------------------ 评分 -->
+      <!--
+        位置刻意放在头部之后、安装之前：评分是「要不要用它」的判断依据，
+        比「怎么装」更靠前一步。放在页面底部的话，绝大多数人看不到。
+      -->
+      <section class="card block rate">
+        <h2 class="block-title">
+          <AppIcon name="star" :size="18" />评分
+          <span class="block-sub">
+            {{ skill.rating_count ? `${skill.rating_count} 人评过` : '还没人评过' }}
+          </span>
+        </h2>
+
+        <div class="rate-row">
+          <!-- 左：当前的社区口碑 -->
+          <div class="rate-view">
+            <StarRating readonly :avg="skill.rating_avg" :count="skill.rating_count" :size="22" />
+          </div>
+
+          <!-- 右：打分入口。busy 期间整块变灰且不可点，避免连点打出两次请求 -->
+          <div class="rate-act" :class="{ busy: ratingBusy }">
+            <StarRating :model-value="skill.my_score" :size="26" @rate="onRate" />
+          </div>
+        </div>
+
+        <!--
+          ⚠️ 正文整段包在 <span> 里：.metric-note 是 display:flex，
+             直接摊开的话文本节点和 <template> 里的内容会各成一个 flex item、各自换行。
+             （同一个坑在下面的安装区已经踩过一次，注释在那儿。）
+        -->
+        <p class="block-hint metric-note" :title="metricNotes.rating">
+          <AppIcon name="info" :size="13" />
+          <span>
+            {{ ratings.hint }}
+            <template v-if="skill.my_score">
+              你已经给了 <b>{{ skill.my_score }} 星</b>，点别的星星就是改分，不会变成第二票。
+            </template>
+          </span>
+        </p>
+      </section>
 
       <!-- ------------------------------------------------ 安装 -->
       <section class="card block install">
@@ -547,6 +629,37 @@ watch(() => route.params.slug, (s) => s && load(s), { immediate: true })
   background: var(--hub_code_bg);
   border-radius: 5px;
   padding: 1px 5px;
+}
+
+/* ---------------------------------------------------------------- 评分 */
+/* 左边是「大家给的分」，右边是「我给它打分」。
+   justify-content: space-between 把它们推到两端；窄屏时 wrap 成上下两行。 */
+.rate-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.rate-view {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.rate-act {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  transition: opacity 0.15s ease;
+}
+
+/* 请求在飞的时候：变灰 + 不吃点击。只置灰不禁用的话，连点仍会打两次请求 */
+.rate-act.busy {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 /* ---------------------------------------------------------------- 安装 */

@@ -86,6 +86,23 @@ export async function registerInstall(slug) {
   return { installs: d.installs }
 }
 
+/**
+ * 打分 / 改分。返回 { my_score, rating_avg, rating_count }。
+ *
+ * 「一人一票」：同一个 IP 对同一个技能只有一票，再打一次是**改分**不是加票
+ * （服务端靠主键 (slug, ip) + on conflict do update，见 003-ratings.sql）。
+ * 所以这里**不需要**「我打过分了吗」的前置判断 —— 直接打，服务端会覆盖，
+ * 而且会把覆盖之后的平均分一起回来，省一次往返。
+ */
+export async function rateSkill(slug, score) {
+  if (!READY) {
+    warnLocalMode()
+    return local.localRate(slug, score)
+  }
+  const d = await rpc('rate_skill', { p_slug: slug, p_score: score })
+  return { my_score: d.my_score, rating_avg: d.rating_avg, rating_count: d.rating_count }
+}
+
 /* -------------------------------------------------------------- 站主专属 */
 
 /**
@@ -173,6 +190,7 @@ const ERROR_TEXT = {
   invalid_payload: '提交的数据不完整或格式不对。',
   name_taken: '同名技能已存在，请改个名字。',
   not_found: '没有找到这个技能。',
+  rating_range: '评分只能是 1~5 星。',
   unauthorized: '管理口令不对。',
   /** 站主专属的限流文案 —— 和「上传太频繁」是两件事，不能共用一句 */
   admin_rate_limited: '口令试错的次数太多了，请过 1 小时再试（或在 Supabase 里重跑 set-admin-token.sql 解锁）。',

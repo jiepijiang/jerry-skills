@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import AppDialog from './AppDialog.vue'
-import { adminNotes, categoryIcon, categoryLabel, metricNotes } from '@/data/site'
+import { adminNotes, categoryIcon, categoryLabel, metricNotes, ratingAvgText } from '@/data/site'
 import { absoluteTime, relativeTime } from '@/lib/time'
 import { adminToken, isAdmin } from '@/lib/admin'
 import { useSkillDelete } from '@/composables/useAdmin'
@@ -49,6 +49,14 @@ function fmt(n) {
   if (v < 1000) return String(v)
   return `${(v / 1000).toFixed(v < 10000 ? 1 : 0)}k`
 }
+
+/**
+ * 平均分文案。空串 = 还没人评分，卡片上整块不渲染。
+ *
+ * 格式化走 @/data/site 的 ratingAvgText，和详情页**共用一份** ——
+ * 各写一份的话迟早出现「卡片 4.5、详情 4.50」。
+ */
+const ratingText = computed(() => ratingAvgText(props.skill?.rating_avg))
 </script>
 
 <template>
@@ -75,6 +83,16 @@ function fmt(n) {
         </span>
         <span class="sc-stat" :title="metricNotes.installs">
           <AppIcon name="terminal" :size="13" />{{ fmt(skill.installs) }}
+        </span>
+        <!--
+          评分：只在有人评过时才显示。一整排「0 分 / 暂无评分」在一张最窄 240px
+          的卡片上是纯噪音 —— 没有评分本身就是「还没人评过」，不需要占位。
+
+          为什么是**单颗星 + 数字**而不是五颗星：五颗星哪怕缩到 12px 也要 60px+，
+          加上数字会把作者和时间挤出这一行。完整的星级画法在详情页（StarRating）。
+        -->
+        <span v-if="ratingText" class="sc-stat sc-rating" :title="metricNotes.rating">
+          <AppIcon name="star" :size="13" />{{ ratingText }}
         </span>
 
         <!-- 作者 + 上传时间，右侧一组（布局理由见 .sc-meta 的注释） -->
@@ -241,6 +259,17 @@ function fmt(n) {
 
 .sc-stat svg {
   fill: var(--hub_muted);
+}
+
+/* 星星单独上金色。用 .sc-stat.sc-rating（0,2,1）而不是 .sc-rating（0,1,1）——
+   后者和上面那条 `.sc-stat svg` 特异度相同，谁赢只看源码顺序，
+   属于「改天有人调一下顺序就悄悄失效」的写法。 */
+.sc-stat.sc-rating svg {
+  fill: var(--hub_star);
+}
+
+.sc-stat.sc-rating {
+  color: var(--hub_star);
 }
 
 /* 右侧元信息组：作者 + 上传时间。卡片最窄 272px（减 padding 后内容约 240px），

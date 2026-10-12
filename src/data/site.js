@@ -88,7 +88,49 @@ export const sorts = [
   { key: 'new', label: '最新', hint: '按上传时间' },
   { key: 'downloads', label: '最多下载', hint: '按「下载 .zip」被点过的次数' },
   { key: 'installs', label: '最多安装', hint: '按「复制安装命令 / AI 提示词」的次数' },
+  { key: 'rating', label: '评分最高', hint: '按平均星级；没人评过分的排在最后' },
 ]
+
+/**
+ * 评分配置。
+ *
+ * ⚠️ `max` 必须和 supabase/migrations/003-ratings.sql 里的
+ *    `constraint skill_ratings_score_range check (score between 1 and 5)` 一致 ——
+ *    前端只是提前拦住，服务端才是真正的闸门（同 `limits` 那条纪律）。
+ *    改一处就要同步改另一处，并在 scripts/tests 里加一条断言钉住。
+ *
+ * 「一人一票」的口径必须自己解释自己：用户会本能地以为「再点一次能投第二票」，
+ * 而实际是**改分**。不写清楚的话，改完分看到人数没变会以为坏了。
+ */
+export const ratings = {
+  max: 5,
+  /** 每个分值对应的说法，下标 0 对应 1 星 */
+  labels: ['很差', '较差', '一般', '不错', '很好'],
+  /** 一条评分都没有时显示什么 */
+  empty: '还没人评分',
+  /** 打分区的说明 —— 把「一人一票、再点一次是改分」讲明白 */
+  hint: '一人一票（按 IP 区分）。再点一次是改分，不会重复计票。',
+  /** 打完分之后的提示 */
+  thanks: (n) => `已记下你的 ${n} 星评价`,
+  /** 悬浮/读屏用的「N 星」描述 */
+  starLabel: (n) => `${n} 星`,
+  /** 平均分保留几位小数（与服务端 round(…, 2) 一致） */
+  digits: 2,
+}
+
+/**
+ * 平均分 → 展示文案。去掉无意义的尾零：4.00 → 4、4.50 → 4.5、4.33 → 4.33。
+ *
+ * 放在这里、而不是卡片和详情页各写一份：两处显示的是**同一个**数字，
+ * 格式化规则一旦分叉，就会出现「卡片写 4.5、详情页写 4.50」这种看着像算错了的差异。
+ * 非数字（null / undefined / NaN）一律给空串 —— 调用方拿空串当「不渲染」的条件，
+ * 而不是让它渲染出 "NaN"。
+ */
+export function ratingAvgText(avg) {
+  const n = Number(avg)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  return n.toFixed(ratings.digits).replace(/\.?0+$/, '')
+}
 
 /**
  * 计量口径说明。
@@ -105,6 +147,9 @@ export const metricNotes = {
   installs:
     '安装量：复制过安装命令 / AI 提示词的次数。本站是纯静态站点，' +
     '拿不到「真的装到本机了」的信号 —— 这是最接近的近似值，不是精确的安装数。',
+  rating:
+    '评分：访客打的 1~5 星。一人一票（按 IP 区分），重复打分为改分、不会重复计票。' +
+    '人数少的时候平均分波动大，仅供参考。',
 }
 
 /**

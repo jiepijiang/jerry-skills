@@ -216,6 +216,27 @@ select (jsonb_populate_record(null::public.skills, payload)).*
 **不需要额外的限流表**：一人一票意味着刷票收益为零（同一个人反复点只会改掉自己那一票）。
 所以 003 里**没有**任何 rate-limit 逻辑 —— 这是设计使然，不是漏了。
 
+### 🔴 验证时的坑：**浏览器和 curl 的出口 IP 往往不是同一个**
+
+`my_score` 是按 IP 认人的，所以**写入端和读取端必须走同一个出口**，否则会看到
+「我明明打过分，详情页却显示『点星星打分』」—— 这不是 bug，是两个 IP。
+
+2026-10-12 实测：macOS 系统代理指向 Clash `7897`，**Chrome 会走它**；
+而命令行 `curl --noproxy '*'` 是直连。于是 Supabase 眼里是两个 IP。
+
+| 验证方式 | 出口 | 结果 |
+| --- | --- | --- |
+| `curl --noproxy '*'` 打分，再用 `curl` 读 | 同一个（直连） | ✅ 看得到 `my_score` |
+| 浏览器点星，再用**浏览器**看 | 同一个（走 7897） | ✅ 看得到「你已经给了 N 星」 |
+| `curl` 打分，再用**浏览器**读 | 两个不同 | ❌ `my_score` 为 null（**正常现象**） |
+
+**判定手法**（很干净）：在浏览器里点一次星，然后看 `rating_count`。
+如果从 1 变成 2，就说明浏览器和 curl 是两个 IP。
+
+> 同理，**「一人一票」的实测结论也只在自己那个出口内成立**。
+> 想验「改分不加票」，必须在**同一条通路**上连打两次。
+
+
 ## 清空全部技能数据（需要时）
 
 `reset-skills.sql`。同样是 SQL Editor 里整段粘贴 → Run。
@@ -237,6 +258,11 @@ select (jsonb_populate_record(null::public.skills, payload)).*
 离线验证：`verify-reset-sql.mjs`（PGlite 真跑，9/9）。除了验「清空生效」，
 还验了「清完表还能用」「表结构 / 函数没被破坏」，并做了两个造红：
 只清 skills 不清日志（→ 日志那条断言红）、表名写错（→ 直接抛错，不是静默通过）。
+
+> ⚠️ 这个脚本**不在仓库里**（`supabase/` 下只有 `verify-migration.mjs` /
+> `verify-admin-delete.mjs` / `verify-ratings.mjs` 三个）。它一直留在本机 AI 工作区
+> `~/.workbuddy-ai/binaries/node/workspace/verify-reset-sql.mjs`，没进仓库。
+> 在仓库里找不到它是**正常**的，别以为被删了。
 
 ## 会不会影响主站 / jerry-tools 的表？
 

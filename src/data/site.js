@@ -48,6 +48,11 @@ export const brand = {
 const CATEGORY_META = {
   development: { label: '开发', icon: 'code' },
   design: { label: '设计', icon: 'palette' },
+  /* 2026-10-12 新增。label 用「UI」而不是「界面」：分类栏里它是唯一一个
+     英文缩写，反而一眼就能认出来，也不会和「设计」在视觉上挤成一团。
+     图标用 web（浏览器窗口）—— palette 已经被「设计」占着了，
+     两个分类共用一个图标，筛选栏上根本分不出谁是谁。 */
+  ui: { label: 'UI', icon: 'web' },
   document: { label: '文档', icon: 'doc' },
   data: { label: '数据', icon: 'chart' },
   writing: { label: '写作', icon: 'pen' },

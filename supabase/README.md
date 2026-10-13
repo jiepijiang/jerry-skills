@@ -31,6 +31,57 @@ Supabase Dashboard 的 **SQL Editor** 里跑：
 > 003 只依赖 001（评分表外键指向 `public.skills`），和 002 没有先后关系。
 > 但**必须先有 001**，否则 003 建外键时会报 `42P01`。
 
+## 一次性入库 42 个 UI 技能（`seed-ui/`）
+
+站上的 UI 分类是 2026-10-12 新加的，配套一次性入库 **42 个 UI 技能（7 个维度 × 6）**。
+材料全在 `seed-ui/`，**不走上传接口** —— 因为 `publish_skill` 有
+**每 IP 每小时 20 次**的上传限流，42 个包在一小时内传不完；而 anon key 又没有
+直写表的权限（`skills` 是 `RLS on + 零策略 + revoke all`）。所以做法是**生成 insert SQL，
+由站主在 SQL Editor 里以 owner 身份跑**。
+
+### 怎么跑
+
+1. 打开 https://supabase.com/dashboard/project/swdnendmdmcyqnnjzytv/sql/new
+2. **依次**把 `seed-ui/01-pc.sql` → `02-h5.sql` → `03-app.sql` → `04-landing.sql` →
+   `05-biz.sql` → `06-admin.sql` → `07-style.sql` 整份粘进去 Run。
+   每份 6 个技能，跑完**不会**报错（结尾都是 `on conflict do nothing`，重复跑安全）。
+3. **最后**跑 `seed-ui/99-check.sql` 自检，期望：
+
+   | 查询 | 期望 |
+   | --- | --- |
+   | 1. `ui 技能总数` | **42** |
+   | 2. 逐维度明细 | **7 行**，每行 `技能数 = 6`、`判定` 全是 **✅** |
+   | 3. `缺字段的行数` | **0** |
+   | 4. `标签数范围` | `判定` 是 **✅**（真实值 `6 ~ 7`，在设计区间 5~7 内） |
+   | 5. 逐条清单 | **42 行** |
+
+### 这批技能从哪来
+
+| 来源 | 数量 | 说明 |
+| --- | --- | --- |
+| **真实开源技能** | 15 | 从 `anthropics/skills`（Apache-2.0）、`alirezarezvani/claude-skills`（MIT）转录，每个包带 `ATTRIBUTION.md` |
+| **自建** | 27 | 站上补空白用（尤其 H5 维度上游**没有**可转录的 UI 技能），源文件在 `seed-ui/authored/` |
+
+> 每个包都带 `ATTRIBUTION.md`（原始仓库 / 路径 / 许可证 / 版权）+ `LICENSE`。
+> 出处明细见 `seed-ui/README.md` 的出处表。
+
+### 为什么这些 SQL 能直接插
+
+- `insert` 用**美元引用**（`$md$…$md$` / `$b64$…$b64$`）包住 readme 和 zip 的 base64，
+  正文里出现单引号也不会破 SQL。
+- `tags` 用 `array[...]::text[]`。
+- **`hash` 必须与前端算的一致**，否则线上再传同一份包会判成「新技能」插成 `xxx-2`。
+  为此 `seed-ui/pack.mjs` 把前端的打包算法**逐字节复刻**：固定 `ZIP_MTIME = 1980-01-01`、
+  按 **codepoint** 排序（不是 `localeCompare`）、level 6。
+- 已在 PGlite（WASM 版 Postgres）里离线验过 **44 项全绿**，并做了 **3 个造红**
+  （分类写错 → 6 条红；去掉 `on conflict` → 主键冲突；自检文件换回 `group by 1` → 3 条红）。
+  重建方法见 `seed-ui/README.md`。
+
+> 🔴 `99-check.sql` 曾经**从生成到现在没被跑过**，里面一条 `group by 1`
+> （聚合函数当分组键 → `42803`）一路活到用户手上。现在验证脚本的最后一节
+> **会把这份自检文件本身执行一遍并逐条断言输出**。
+> **生成的文件也要真跑 —— 「写出来了」不等于「能跑」。**
+
 ## 站主删除功能（002）
 
 站点上有一个删除按钮，但**只有站主能用**。这个站是纯静态托管 + 匿名开放上传，

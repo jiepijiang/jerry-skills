@@ -3,6 +3,9 @@ node_modules
 dist
 dist-ssr
 .vite
+# UI 技能包重建时的中间产物。SQL 本体在 supabase/seed-ui/*.sql，已入库；
+# 这个目录只是 build-*.mjs 跑出来的暂存，不该跟着仓库走。
+supabase/seed-ui/out
 
 # 本地环境
 *.local

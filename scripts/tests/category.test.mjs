@@ -74,7 +74,12 @@ test('normalizeCategory：认别名与中文写法', () => {
     ['coding', 'development'],
     ['docs', 'document'],
     ['文档', 'document'],
-    ['ui', 'design'],
+    // 2026-10-12：`ui` 从 design 拆出来成了独立分类，这几条跟着改。
+    ['ui', 'ui'],
+    ['ux', 'ui'],
+    ['uiux', 'ui'],
+    ['interface', 'ui'],
+    ['界面', 'ui'],
     ['设计', 'design'],
     ['数据', 'data'],
     ['写作', 'writing'],
@@ -108,6 +113,33 @@ test('英文关键词按词边界匹配 —— word 不许命中 keyword / passw
 
 test('英文关键词按词边界匹配 —— ui 不许命中 guide / build', () => {
   assertNoHit({ name: 'guide-builder', description: 'a guide to building things' }, 'ui')
+})
+
+test('★ ui 与 design 的关键词不重叠 —— 拆分类时最容易留下的坑', () => {
+  // 一个词同时挂在两个分类下，结果就取决于「哪个分类先被遍历」，
+  // 表现为「同一个技能今天判 design、明天判 ui」这种查不出来的漂移。
+  const src = readFileSync(`${ROOT}src/lib/category.js`, 'utf8')
+  const block = /const RULES = \{([\s\S]*?)\n\}/.exec(src)
+  assert.ok(block, '没找到 RULES 定义')
+
+  // ⚠️ 必须先剥掉块注释再提取：说明文字里只要出现一对单引号（比如举例写 'dashboard'），
+  //    就会被下面的正则当成词表条目 —— 第一版正是栽在这，报了一个不存在的重复。
+  const code = block[1].replace(/\/\*[\s\S]*?\*\//g, '')
+
+  const seen = new Map()
+  const dup = []
+  // 逐个分类抽出它的词表（`ui: [...]` / `design: [...]`）
+  const re = /^\s{2}([a-z]+):\s*\[([\s\S]*?)\n\s{2}\],/gm
+  let m
+  while ((m = re.exec(code))) {
+    const [, key, body] = m
+    for (const raw of body.matchAll(/'([^']+)'/g)) {
+      const w = raw[1]
+      if (seen.has(w)) dup.push(`${w}（${seen.get(w)} 与 ${key}）`)
+      else seen.set(w, key)
+    }
+  }
+  assert.equal(dup.length, 0, `这些关键词同时挂在两个分类下：${dup.join('、')}`)
 })
 
 test('英文关键词按词边界匹配 —— 该命中的还是要命中', () => {
@@ -171,6 +203,24 @@ test('真实技能样例各自落到合理分类', () => {
     [
       { name: 'deploy-helper', description: '一键把静态站点部署到服务器，自动配 nginx 与证书。', tags: [] },
       'devops',
+    ],
+    // 2026-10-12 新增 ui 分类后补的两条：界面类技能要落到 ui，
+    // 而不是被「设计」或「开发」抢走。
+    [
+      {
+        name: 'admin-dashboard-builder',
+        description: '生成后台管理系统的列表页、表单页与权限界面，统一布局与栅格。',
+        tags: ['后台', 'dashboard'],
+      },
+      'ui',
+    ],
+    [
+      {
+        name: 'glassmorphism-ui',
+        description: '玻璃拟态风格的界面实现与交付前检查清单。',
+        tags: ['玻璃拟态', 'ui'],
+      },
+      'ui',
     ],
   ]
   for (const [input, want] of cases) {

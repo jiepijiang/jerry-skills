@@ -28,6 +28,7 @@
 export const CATEGORY_KEYS = [
   'development',
   'design',
+  'ui',
   'document',
   'data',
   'writing',
@@ -53,9 +54,16 @@ const ALIASES = {
   开发: 'development',
   编程: 'development',
 
-  ui: 'design',
-  ux: 'design',
-  uiux: 'design',
+  /* ⚠️ 2026-10-12 拆出 ui 分类时改过这里。
+     `ui` 现在是**标准 key**，会被 CATEGORY_KEYS 直接命中、根本走不到别名 ——
+     所以原来那条 `ui: 'design'` 已删掉：留着是死代码，还会让人以为「ui 归设计」。
+     `ux` / `uiux` 则显式改指 ui：界面设计才是这两个词的本义，
+     继续归「设计」（品牌 / 视觉 / 平面）会让写 ux 的人落到不相干的分类里。 */
+  ux: 'ui',
+  uiux: 'ui',
+  interface: 'ui',
+  界面: 'ui',
+  交互: 'ui',
   设计: 'design',
 
   docs: 'document',
@@ -101,15 +109,34 @@ const RULES = {
     'python', 'javascript', 'typescript', 'nodejs', 'golang', 'rust', 'kotlin', 'swift',
     'mcp', 'playwright', 'puppeteer', 'selenium', 'regex', 'json', 'yaml', 'html',
     '代码', '编程', '开发', '脚本', '命令行', '终端', '调试', '重构', '编译', '依赖',
-    '框架', '插件', '接口', '函数', '组件', '前端', '后端', '服务端', '单元测试',
+    /* 「组件」2026-10-12 移去 ui —— 它同时挂在两个分类下会让判定随遍历顺序漂移
+       （见 category.test.mjs 的「关键词不重叠」那条）。开发这边有「前端 / 框架 / 插件」
+       已经够用了，不缺这一个词。 */
+    '框架', '插件', '接口', '函数', '前端', '后端', '服务端', '单元测试',
     '源码', '编码', '打包', '构建', '类库',
   ],
+  /* 「设计」= 视觉 / 品牌 / 平面，**不含界面本身**。
+     界面（UI / 交互 / 组件 / 布局 / 响应式 / 设计系统）2026-10-12 拆去了下面的 ui，
+     两边各留一份的话，同一个技能会随「哪个词先命中」在两个分类之间飘。 */
   design: [
-    'ui', 'ux', 'design*', 'figma', 'sketch', 'wireframe', 'mockup', 'prototype', 'layout',
-    'typography', 'font*', 'color*', 'colour*', 'palette', 'icon*', 'logo',
-    'brand*', 'theme*', 'css', 'tailwind', 'animat*', 'illustration', 'poster', 'banner',
-    '设计', '界面', '交互', '原型', '配色', '图标', '布局', '样式', '视觉',
-    '字体', '品牌', '主题', '动效', '插画', '海报', '排版',
+    'design*', 'sketch', 'typography', 'font*', 'color*', 'colour*', 'palette',
+    'icon*', 'logo', 'brand*', 'theme*', 'animat*', 'illustration', 'poster', 'banner',
+    'visual', 'graphic', 'aesthetic*',
+    '设计', '原型', '配色', '图标', '视觉', '字体', '品牌', '主题', '动效',
+    '插画', '海报', '排版', '平面',
+  ],
+  /* 「UI」= 界面本身：布局 / 组件 / 交互 / 响应式 / 设计系统，
+     以及各端各场景（PC / H5 / APP / 落地页 / 后台）的界面规则与风格。
+     这是「做界面」的分类，和「设计」的「做视觉」互不重叠。 */
+  ui: [
+    'ui', 'ux', 'uiux', 'interface', 'component*', 'layout', 'responsive', 'breakpoint*',
+    'css', 'tailwind', 'design-system', 'style-guide', 'design-token*',
+    'dashboard', 'admin-panel', 'admin-dashboard', 'navigation', 'onboarding',
+    'wireframe', 'mockup', 'prototype', 'figma', 'accessib*',
+    'glassmorphism', 'neumorphism', 'bento', 'dark-mode', 'landing-page', 'h5',
+    '界面', '交互', '组件', '布局', '响应式', '设计系统', '样式', '表单', '弹窗',
+    '导航', '仪表板', '后台', '落地页', '移动端', '暗黑模式', '深色模式',
+    '无障碍', '玻璃拟态', '新拟态', '栅格', '空状态', '加载态', '触屏', '热区',
   ],
   document: [
     'doc', 'docs', 'document*', 'markdown', 'pdf', 'docx', 'pptx', 'word',
@@ -120,7 +147,9 @@ const RULES = {
   data: [
     'data', 'dataset', 'sql', 'database', 'postgres*', 'mysql', 'sqlite', 'mongodb',
     'query', 'csv', 'excel', 'xlsx', 'spreadsheet', 'pandas', 'numpy', 'etl',
-    'analytics', 'analysis', 'analyze', 'metric*', 'statistic*', 'dashboard',
+    /* dashboard 2026-10-12 移去 ui：现在它几乎总是指「仪表板界面」。
+       数据这边留着 chart / graph / visuali / metric / statistic 已经够判断。 */
+    'analytics', 'analysis', 'analyze', 'metric*', 'statistic*',
     'chart*', 'graph*', 'visuali*', 'scrape*', 'crawl*', 'aggregate',
     '数据', '数据库', '查询', '分析', '报表', '图表', '指标', '统计',
     '可视化', '清洗', '爬虫', '表格', '数据集', '埋点', '聚合', '提取',

@@ -182,7 +182,7 @@ scripts/
 ├── install-ps1.tpl        install.ps1 模板（Windows / PowerShell）
 ├── gen-installers.mjs     predev / prebuild 钩子：把端点注入上面两个模板
 ├── check-supabase-env.mjs 构建期核对（分 warning / error 两档）
-└── tests/                 单测 168 条（明细见下面「验证」）
+└── tests/                 单测 169 条（明细见下面「验证」）
 
 supabase/
 ├── migrations/001-skills.sql        表 + RLS + 5 个 SECURITY DEFINER 函数
@@ -193,8 +193,20 @@ supabase/
 ├── reset-skills.sql                 清空全部技能数据（需手动跑）
 ├── verify-migration.mjs             PGlite 离线验证（共用项目替身 + 前后快照对比）
 ├── verify-admin-delete.mjs          PGlite 离线验证（002 的安全逻辑，67 项）
-└── verify-ratings.mjs               PGlite 离线验证（003 的一人一票 / 排序 / 级联，46 项）
+├── verify-ratings.mjs               PGlite 离线验证（003 的一人一票 / 排序 / 级联，46 项）
+└── seed-ui/                         UI 分类的入库材料（7 个维度 × 6 = 42 个技能）
+    ├── README.md                    怎么跑、出处表、维度分布、怎么重建
+    ├── 01-pc.sql … 07-style.sql     7 份 insert（每份 6 个技能）
+    ├── 99-check.sql                 跑完后的自检（总数 / 维度分布 / 缺字段 / 标签数）
+    ├── authored/                    27 个自建技能的源文件（75 个文件，真源）
+    ├── pack.mjs                     与前端**逐字节一致**的打包（固定 mtime + codepoint 排序）
+    ├── build-real.mjs               15 个真实开源技能 → 打包
+    ├── build-authored.mjs           27 个自建技能 → 打包
+    ├── gen-sql.mjs                  把打好的包拼成 7 份 insert SQL
+    └── meta-real.json               15 个真实技能的出处 / 许可证 / 版权
 ```
+
+> `seed-ui/out/`（打包中间产物）已进 `.gitignore`，不进仓库。
 
 > ⚠️ `verify-reset-sql.mjs`（清库脚本的离线验证，9 项）**不在这个目录里** ——
 > 它一直留在本机 AI 工作区（`~/.workbuddy-ai/binaries/node/workspace/`），没进仓库。
@@ -238,7 +250,7 @@ supabase/
 ## 验证
 
 ```bash
-npm test          # 168 条断言：解析 28 · 分类 25 · 站主删除 20 · 时间 13
+npm test          # 169 条断言：解析 28 · 分类 26 · 站主删除 20 · 时间 13
                   #              卡片渲染 11 · 安装器 22 · 安装命令 14 · 界面一致性 6 · 评分 29
 npm run build     # 构建（会先跑 gen-installers，生成 install.sh + install.ps1）
 npm run check:env # 后端连通性（未配则只警告）
@@ -254,7 +266,7 @@ npm run check:env # 后端连通性（未配则只警告）
 > PWSH_PATH=~/.workbuddy-ai/binaries/pwsh/pwsh npm test
 > ```
 >
-> 全量实测 **168 pass / 0 fail / 0 skipped，约 11s**；不指定时是 **160 pass / 8 skipped，约 2s**。
+> 全量实测 **169 pass / 0 fail / 0 skipped，约 11s**；不指定时是 **161 pass / 8 skipped，约 2s**。
 > CI 的 ubuntu runner 预装 pwsh，跑的就是全量。
 
 按本项目的纪律，**写完断言要故意造红一次**，确认它真会失败。已验证：
@@ -492,7 +504,7 @@ npm run check:env # 后端连通性（未配则只警告）
 
 ### 为什么会「全都跑到其他里去」
 
-旧规则只有第 1 层，而且要求值**精确等于**那 8 个英文 key。问题是：
+旧规则只有第 1 层，而且要求值**精确等于**那 9 个英文 key。问题是：
 **Anthropic 官方的 SKILL.md 格式里根本没有 `category` 字段** ——
 官方 frontmatter 只有 `name` + `description`（可选 `license` / `allowed-tools`）。
 
@@ -504,7 +516,7 @@ npm run check:env # 后端连通性（未配则只警告）
 ### 几个刻意的设计
 
 - **支持别名与中文**：`dev` / `开发` / `docs` / `文档` / `ops` / `运维` / `数据` … 都认。
-  人写 frontmatter 时几乎不会正好写出我们那 8 个英文单词。
+  人写 frontmatter 时几乎不会正好写出我们那 9 个英文单词。
 - **「不认识」≠「就是其他」**：`normalizeCategory('nonsense')` 返回**空串**而不是 `other`。
   前者该走推断，后者该被尊重。混成一样的话，作者写 `category: misc` 和完全没写会得到同样的处理。
 - **不用 readme 做推断**：readme 又长又杂，几乎任何分类都能在里面找到自己的词 ——
@@ -515,6 +527,32 @@ npm run check:env # 后端连通性（未配则只警告）
   `ui` 不会命中 `guide` / `build`。这条有专门的测试钉住 —— 裸 `includes` 是最容易埋的假阳性。
 - **推断只是预填**：上传页会显示「按内容推断为「开发」（命中：cli、命令行、插件）」，
   并允许随时改。**把依据摆出来**比猜得准更重要 —— 用户看得见才敢信。
+
+### 2026-10-12：把 `ui` 从 `design` 里拆出来
+
+原来 `ui` 是 `design` 的一个**别名**（`ui: 'design'`），也就是说界面类技能全被归进「设计」。
+但「设计」这个词下面其实混着两种东西：
+
+| 分类 | 管什么 | 典型词 |
+| --- | --- | --- |
+| `design` | 视觉 / 品牌本身 | `typography` `palette` `logo` `brand` `插画` `海报` |
+| `ui` | 界面结构与交互 | `component` `layout` `dashboard` `responsive` `design-system` `落地页` `后台` |
+
+拆开之后 `CATEGORY_KEYS` 从 8 个变 9 个，`ui` 排 `design` 后面。
+原来的别名 `ui: 'design'` **删掉**（不然它会把新 key 又指回旧分类），
+`ux` / `uiux` / `interface` / `界面` / `交互` 改为指向 `ui`。
+
+**拆的时候踩到一个真坑**：`组件` 原本同时躺在 `development` 和 `ui` 的关键词里，
+`dashboard` 同时躺在 `ui` 和 `data` 里 —— 这正是「两处清单各改一半」的经典漂移。
+为此新加了一条**结构性测试** `★ ui 与 design 的关键词不重叠`：它直接从源码里
+解析出 `RULES`，断言没有任何一个关键词同时出现在两个分类里。写这条测试时它自己
+也翻过一次车 —— 注释里一个带引号的 `'dashboard'` 被当成了关键词（**注释要先剥掉**）。
+
+> 这条测试的价值不在「跑绿」，而在**下次谁想加关键词时会立刻被拦住** ——
+> 手工维护两份清单迟早会撞车，让机器盯着比靠自觉靠谱。
+
+拆完之后 `jerry-skills` 站上**多了一个 UI 分类**，并一次性入库了
+**42 个 UI 技能（7 个维度 × 6）** —— 详见 `supabase/seed-ui/README.md`。
 
 ---
 

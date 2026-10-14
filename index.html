@@ -13,6 +13,58 @@
       name="keywords"
       content="AI Agent Skill,Claude Code Skill,Cursor,Codex,WorkBuddy,技能分享,SKILL.md"
     />
+    <meta name="author" content="Jerry" />
+    <meta
+      name="robots"
+      content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+    />
+    <meta name="format-detection" content="telephone=no,email=no,address=no" />
+    <!-- 取背景图（background.jpg）天空的深蓝紫，与本站深色主题一致 -->
+    <meta name="theme-color" content="#1c2742" />
+
+    <!--
+      og / twitter 分享卡片（2026-10-14 补）
+      ----------------------------------------------------------------------
+      在此之前本站**只有** description / keywords，没有任何 og / twitter 标签 ——
+      链接被分享到微信 / 飞书 / Twitter 时**没有卡片**，只剩一条裸链接。
+      （同项目的 jerry-site / jerry-tools 已有整套，这里照它们的结构补齐。）
+
+      ⚠️ **og:image 必须写完整的绝对 URL（含 /jerry-skills/ 子路径）。**
+         Vite 只重写「以 / 开头」的路径，https:// 开头的原样保留；
+         而分享卡片的抓取方**不解析相对路径**，写 /static/... 会取不到图。
+         → 换域名 / 换仓库名时这里要跟着改（和 vite.config.js 的 REPO_NAME
+           是两处独立的地方，没有自动同步；`npm run check:meta` 会拦下不一致）。
+
+      ⚠️ **没有 apple-touch-icon**：本站 favicon 是 SVG，而 iOS 的
+         apple-touch-icon **只认 PNG**（不支持 SVG）—— 指过去也是白搭。
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="Skill Hub · Jerry 的技能分享站" />
+    <meta property="og:title" content="Skill Hub · Jerry 的技能分享站" />
+    <meta
+      property="og:description"
+      content="AI Agent Skill 分享站 —— 上传、解析、一键安装到 Claude Code / Cursor / Codex / WorkBuddy 等 AI 助手"
+    />
+    <meta property="og:url" content="https://jiepijiang.github.io/jerry-skills/" />
+    <meta
+      property="og:image"
+      content="https://jiepijiang.github.io/jerry-skills/static/img/background.jpg"
+    />
+    <meta property="og:image:width" content="1186" />
+    <meta property="og:image:height" content="711" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Skill Hub · Jerry 的技能分享站" />
+    <meta
+      name="twitter:description"
+      content="AI Agent Skill 分享站 —— 上传、解析、一键安装到 Claude Code / Cursor / Codex / WorkBuddy 等 AI 助手"
+    />
+    <meta
+      name="twitter:image"
+      content="https://jiepijiang.github.io/jerry-skills/static/img/background.jpg"
+    />
+
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
     <!-- 背景图是 body 的 background，提前拉一下省得首屏闪一下空白 -->
     <link rel="preload" href="/static/img/background.jpg" as="image" type="image/jpeg" />

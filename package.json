@@ -11,6 +11,7 @@
     "predev": "node scripts/gen-installers.mjs",
     "prebuild": "node scripts/gen-installers.mjs",
     "check:env": "node scripts/check-supabase-env.mjs",
+    "check:meta": "node scripts/check-meta.mjs",
     "test": "node --test scripts/tests/*.test.mjs"
   },
   "dependencies": {
